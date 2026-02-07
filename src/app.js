@@ -20,11 +20,8 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// CORS configuration
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3001',
-  credentials: true
-}));
+// CORS - allow all for API (mobile apps, web, Vercel)
+app.use(cors({ origin: true, credentials: true }));
 
 // Body parser
 app.use(express.json());
