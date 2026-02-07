@@ -23,9 +23,9 @@ app.use(helmet());
 // CORS - allow all for API (mobile apps, web, Vercel)
 app.use(cors({ origin: true, credentials: true }));
 
-// Body parser
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body parser - increase limit for base64 images
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate limiting
 const limiter = rateLimit({

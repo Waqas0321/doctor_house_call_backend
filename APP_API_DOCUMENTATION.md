@@ -2,7 +2,11 @@
 
 API documentation for the mobile app. All endpoints require `Authorization: Bearer <token>` except social auth and login.
 
-**Base URL:** `http://localhost:3000/api`
+**Base URL (Production):** `https://doctor-house-call-backend.vercel.app`
+
+**Base URL (Local):** `http://localhost:3000`
+
+API paths: `/api/auth/google`, `/api/family-members`, etc.
 
 ---
 
@@ -114,18 +118,20 @@ Content-Type: application/json
 ```http
 POST /api/family-members
 Authorization: Bearer <token>
-Content-Type: application/json
+Content-Type: multipart/form-data
 ```
 
-**Request:**
-```json
-{
-  "name": "Jane Doe",
-  "dob": "1990-05-15",
-  "image": "https://... or base64 (optional)",
-  "address": "123 Main St (optional)"
-}
-```
+**Request (form-data):**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| name | text | Yes | Full name |
+| dob | text | Yes | Date of birth (YYYY-MM-DD) |
+| image | file | No | Image file (JPEG, PNG, WebP, max 5MB) |
+| address | text | No | Address |
+| notes | text | No | Notes |
+
+**Flutter (image picker):** Send as `multipart/form-data` with `image` as file from `ImagePicker`.
 
 **Response:**
 ```json
@@ -255,16 +261,18 @@ Authorization: Bearer <token>
 
 ## Testing (cURL)
 
+Examples use production URL. For local: replace with `http://localhost:3000`.
+
 ### 1. Google Sign-In
 ```bash
-curl -X POST http://localhost:3000/api/auth/google \
+curl -X POST https://doctor-house-call-backend.vercel.app/api/auth/google \
   -H "Content-Type: application/json" \
   -d '{"providerUserId":"google_123","email":"user@gmail.com","firstName":"John","lastName":"Doe"}'
 ```
 
 ### 2. Store Address
 ```bash
-curl -X PUT http://localhost:3000/api/auth/profile \
+curl -X PUT https://doctor-house-call-backend.vercel.app/api/auth/profile \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{"address":"123 Main St, Winnipeg, MB"}'
@@ -272,13 +280,13 @@ curl -X PUT http://localhost:3000/api/auth/profile \
 
 ### 3. Get Profile
 ```bash
-curl -X GET http://localhost:3000/api/auth/me \
+curl -X GET https://doctor-house-call-backend.vercel.app/api/auth/me \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### 4. Add Patient
 ```bash
-curl -X POST http://localhost:3000/api/family-members \
+curl -X POST https://doctor-house-call-backend.vercel.app/api/family-members \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{"name":"Jane Doe","dob":"1990-05-15"}'
@@ -286,13 +294,13 @@ curl -X POST http://localhost:3000/api/family-members \
 
 ### 5. Get Patients
 ```bash
-curl -X GET http://localhost:3000/api/family-members \
+curl -X GET https://doctor-house-call-backend.vercel.app/api/family-members \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### 6. Create Booking
 ```bash
-curl -X POST http://localhost:3000/api/bookings \
+curl -X POST https://doctor-house-call-backend.vercel.app/api/bookings \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{"familyMemberId":"PATIENT_ID","contactPhone":"2045551234","contactEmail":"test@example.com","visitType":"phone_call","lat":49.8951,"lng":-97.1384}'
@@ -300,6 +308,6 @@ curl -X POST http://localhost:3000/api/bookings \
 
 ### 7. Get My Bookings
 ```bash
-curl -X GET http://localhost:3000/api/bookings \
+curl -X GET https://doctor-house-call-backend.vercel.app/api/bookings \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```

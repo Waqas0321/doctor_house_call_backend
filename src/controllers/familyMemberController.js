@@ -77,12 +77,19 @@ exports.createFamilyMember = async (req, res, next) => {
       });
     }
 
+    // Handle image: from file (multipart) or base64 (JSON)
+    let imageData = image;
+    if (req.file && req.file.buffer) {
+      const mimeType = req.file.mimetype || 'image/jpeg';
+      imageData = `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
+    }
+
     const familyMember = await FamilyMember.create({
       userId: req.user.id,
       firstName: finalFirstName,
       lastName: finalLastName,
       dob: new Date(dob),
-      image,
+      image: imageData,
       address,
       phin,
       mhsc,

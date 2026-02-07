@@ -25,15 +25,22 @@ Add these in **Vercel Dashboard** → Your Project → **Settings** → **Enviro
 
 2. Set environment variables in Vercel Dashboard before deploying
 
-3. **MongoDB Atlas**: Whitelist Vercel's IPs OR use "Allow access from anywhere" (0.0.0.0/0) in Network Access
+3. **MongoDB Atlas** (required):
+   - Network Access → Add IP Address → **Allow access from anywhere** (0.0.0.0/0)
+   - Cluster must be **running** (not paused)
 
 ## Update Your App
 
-After deployment, use your Vercel URL as the API base:
-```
-https://your-project.vercel.app
-```
+**Production Base URL:** `https://doctor-house-call-backend.vercel.app`
 
 Examples:
-- Health: `https://your-project.vercel.app/health`
-- Google Auth: `https://your-project.vercel.app/api/auth/google`
+- Health: `https://doctor-house-call-backend.vercel.app/health`
+- Google Auth: `https://doctor-house-call-backend.vercel.app/api/auth/google`
+
+## Troubleshooting "buffering timed out"
+
+If you see `users.findOne() buffering timed out`:
+1. **MONGODB_URI** – Ensure it's set in Vercel → Settings → Environment Variables
+2. **MongoDB Atlas** – Network Access must include 0.0.0.0/0
+3. **Cluster** – Must be running (resume if paused)
+4. Redeploy after changing env vars

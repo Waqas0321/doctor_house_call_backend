@@ -5,9 +5,18 @@
 ---
 
 ## Base URL
+
+**Production (Vercel):**
 ```
-http://localhost:3000/api
+https://doctor-house-call-backend.vercel.app
 ```
+
+**Local:**
+```
+http://localhost:3000
+```
+
+API paths are appended (e.g. `/api/auth/login`, `/api/bookings`).
 
 ## Authentication
 Most endpoints require a JWT token in the Authorization header:
