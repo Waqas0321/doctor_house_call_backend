@@ -14,6 +14,9 @@ Add these in **Vercel Dashboard** → Your Project → **Settings** → **Enviro
 |----------|-------------|---------|
 | MONGODB_URI | MongoDB Atlas connection string | mongodb+srv://user:pass@cluster.mongodb.net/dbname |
 | JWT_SECRET | Secret for JWT tokens | your-secure-random-string |
+| CLOUDINARY_CLOUD_NAME | Cloudinary cloud name (for image uploads) | your-cloud-name |
+| CLOUDINARY_API_KEY | Cloudinary API key | 123456789012345 |
+| CLOUDINARY_API_SECRET | Cloudinary API secret | your-api-secret |
 
 ## Deploy
 

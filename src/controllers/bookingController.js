@@ -75,24 +75,9 @@ exports.createBooking = async (req, res, next) => {
       call911Acknowledged: safety.call911Acknowledged !== false
     };
 
-    // Find matching zone
-    const zone = await findMatchingZone(addressData.lat, addressData.lng);
-    const availableTypes = getAvailableVisitTypes(zone);
-
-    // Validate visit type is available
-    if (visitType === 'phone_call' && !availableTypes.phoneCall) {
-      return res.status(400).json({
-        success: false,
-        error: 'Phone call visits are not available in this area'
-      });
-    }
-
-    if (visitType === 'house_call' && !availableTypes.houseCall) {
-      return res.status(400).json({
-        success: false,
-        error: 'House call visits are not available in this area'
-      });
-    }
+    // Testing phase: accept bookings worldwide (no zone restriction for phone or house call)
+    const zone = null; // await findMatchingZone(addressData.lat, addressData.lng);
+    // When live: const availableTypes = getAvailableVisitTypes(zone); then reject if house_call && !availableTypes.houseCall
 
     // Get patient info from selected family member
     const familyMember = await FamilyMember.findOne({

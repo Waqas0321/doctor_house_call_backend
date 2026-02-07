@@ -1,5 +1,24 @@
 const FamilyMember = require('../models/FamilyMember');
 const { createAuditLog } = require('../services/auditService');
+const { uploadImage } = require('../services/uploadService');
+
+/** Base URL for building image URLs (e.g. https://api.example.com) */
+const getBaseUrl = (req) => {
+  if (process.env.BASE_URL) return process.env.BASE_URL.replace(/\/$/, '');
+  const protocol = req.protocol || 'https';
+  const host = req.get('host') || '';
+  return host ? `${protocol}://${host}` : '';
+};
+
+/** Ensure each family member has image + imageUrl in the response */
+const withImageUrl = (member, baseUrl) => {
+  const doc = member.toObject ? member.toObject() : { ...member };
+  const image = doc.image ?? null;
+  const imageUrl = (image && (image.startsWith('/') || image.startsWith('uploads/')))
+    ? `${baseUrl}/${image.replace(/^\//, '')}`
+    : image;
+  return { ...doc, image: image || null, imageUrl: imageUrl || null };
+};
 
 /**
  * @desc    Get all family members for user
@@ -11,12 +30,17 @@ exports.getFamilyMembers = async (req, res, next) => {
     const familyMembers = await FamilyMember.find({
       userId: req.user.id,
       isActive: true
-    }).sort({ createdAt: -1 });
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const baseUrl = getBaseUrl(req);
+    const data = familyMembers.map((m) => withImageUrl(m, baseUrl));
 
     res.status(200).json({
       success: true,
-      count: familyMembers.length,
-      data: familyMembers
+      count: data.length,
+      data
     });
   } catch (error) {
     next(error);
@@ -43,9 +67,12 @@ exports.getFamilyMember = async (req, res, next) => {
       });
     }
 
+    const baseUrl = getBaseUrl(req);
+    const data = withImageUrl(familyMember, baseUrl);
+
     res.status(200).json({
       success: true,
-      data: familyMember
+      data
     });
   } catch (error) {
     next(error);
@@ -77,11 +104,12 @@ exports.createFamilyMember = async (req, res, next) => {
       });
     }
 
-    // Handle image: from file (multipart) or base64 (JSON)
-    let imageData = image;
+    // Handle image: upload to Cloudinary (get URL) or accept base64/URL from JSON
+    let imageData = image || null;
     if (req.file && req.file.buffer) {
       const mimeType = req.file.mimetype || 'image/jpeg';
-      imageData = `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
+      const imageUrl = await uploadImage(req.file.buffer, mimeType);
+      imageData = imageUrl || `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
     }
 
     const familyMember = await FamilyMember.create({
@@ -106,9 +134,10 @@ exports.createFamilyMember = async (req, res, next) => {
       userAgent: req.get('user-agent')
     });
 
+    const baseUrl = getBaseUrl(req);
     res.status(201).json({
       success: true,
-      data: familyMember
+      data: withImageUrl(familyMember, baseUrl)
     });
   } catch (error) {
     next(error);
@@ -164,9 +193,10 @@ exports.updateFamilyMember = async (req, res, next) => {
       userAgent: req.get('user-agent')
     });
 
+    const baseUrl = getBaseUrl(req);
     res.status(200).json({
       success: true,
-      data: familyMember
+      data: withImageUrl(familyMember, baseUrl)
     });
   } catch (error) {
     next(error);
