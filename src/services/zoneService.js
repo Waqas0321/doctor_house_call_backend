@@ -1,18 +1,21 @@
 const Zone = require('../models/Zone');
-const turf = require('@turf/turf');
+const pip = require('point-in-polygon');
 
 /**
  * Check if a point is inside a polygon
+ * GeoJSON: coordinates are [lng, lat], polygon ring is array of [lng, lat]
  * @param {number} lat - Latitude
  * @param {number} lng - Longitude
- * @param {Array} polygonCoordinates - Polygon coordinates array
+ * @param {Array} polygonCoordinates - GeoJSON coordinates (Polygon: [[ring]], ring = [[lng,lat],...])
  * @returns {boolean} True if point is inside polygon
  */
 const pointInPolygon = (lat, lng, polygonCoordinates) => {
   try {
-    const point = turf.point([lng, lat]);
-    const polygon = turf.polygon(polygonCoordinates);
-    return turf.booleanPointInPolygon(point, polygon);
+    const point = [lng, lat];
+    const ring = polygonCoordinates[0] && Array.isArray(polygonCoordinates[0][0])
+      ? polygonCoordinates[0]
+      : polygonCoordinates;
+    return pip(point, ring);
   } catch (error) {
     console.error('Error checking point in polygon:', error);
     return false;
