@@ -93,9 +93,11 @@ exports.createBooking = async (req, res, next) => {
       });
     }
 
+    const fullName = familyMember.fullName || [familyMember.firstName, familyMember.lastName].filter(Boolean).join(' ').trim();
+    const nameParts = (fullName || 'Patient').split(/\s+/);
     const finalPatientInfo = {
-      firstName: familyMember.firstName,
-      lastName: familyMember.lastName,
+      firstName: nameParts[0] || familyMember.firstName || '',
+      lastName: nameParts.slice(1).join(' ') || familyMember.lastName || '',
       dob: familyMember.dob,
       phin: familyMember.phin,
       mhsc: familyMember.mhsc

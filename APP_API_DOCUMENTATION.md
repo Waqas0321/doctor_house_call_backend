@@ -112,7 +112,11 @@ Content-Type: application/json
 
 ---
 
-## 3. Patients
+## 3. Patients (Family Members)
+
+All patient endpoints require `Authorization: Bearer <token>`.
+
+---
 
 ### Add Patient
 ```http
@@ -125,10 +129,12 @@ Content-Type: multipart/form-data
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| name | text | Yes | Full name |
+| fullName | text | Yes | Full name (e.g. "Jane Doe") |
 | dob | text | Yes | Date of birth (YYYY-MM-DD) |
-| image | file | No | Image file (JPEG, PNG, WebP, max 5MB) |
+| image | file | No | Image file (JPEG, PNG, WebP, max 5MB). Uploaded to Cloudinary; URL stored in DB. |
 | address | text | No | Address |
+| phin | text | No | Provincial Health ID |
+| mhsc | text | No | Manitoba Health Services Card |
 | notes | text | No | Notes |
 
 **Flutter (image picker):** Send as `multipart/form-data` with `image` as file from `ImagePicker`.
@@ -138,15 +144,27 @@ Content-Type: multipart/form-data
 {
   "success": true,
   "data": {
-    "_id": "patient_id",
-    "firstName": "Jane",
-    "lastName": "Doe",
-    "dob": "1990-05-15",
-    "image": "...",
-    "address": "..."
+    "_id": "6987317f3708db127e51d4d1",
+    "userId": "user_id",
+    "fullName": "Jane Doe",
+    "dob": "1990-05-15T00:00:00.000Z",
+    "image": "https://res.cloudinary.com/.../image/upload/.../photo.jpg",
+    "imageUrl": "https://res.cloudinary.com/.../image/upload/.../photo.jpg",
+    "address": "123 Main St",
+    "phin": null,
+    "mhsc": null,
+    "notes": null,
+    "isActive": true,
+    "createdAt": "2025-02-07T...",
+    "updatedAt": "2025-02-07T..."
   }
 }
 ```
+
+- `fullName` – Full name (single field).
+- `image` and `imageUrl` – Cloudinary URL when image is uploaded; `null` when no image. Use in app to display photo (e.g. `<Image source={{ uri: data.imageUrl }} />`).
+
+---
 
 ### Get All Patients
 ```http
@@ -161,16 +179,111 @@ Authorization: Bearer <token>
   "count": 2,
   "data": [
     {
-      "_id": "patient_id",
-      "firstName": "Jane",
-      "lastName": "Doe",
-      "dob": "1990-05-15",
-      "image": "...",
-      "address": "..."
+      "_id": "6987317f3708db127e51d4d1",
+      "userId": "user_id",
+      "fullName": "Jane Doe",
+      "dob": "1990-05-15T00:00:00.000Z",
+      "image": "https://res.cloudinary.com/.../photo.jpg",
+      "imageUrl": "https://res.cloudinary.com/.../photo.jpg",
+      "address": "123 Main St",
+      "phin": null,
+      "mhsc": null,
+      "notes": null,
+      "isActive": true,
+      "createdAt": "2025-02-07T...",
+      "updatedAt": "2025-02-07T..."
     }
   ]
 }
 ```
+
+---
+
+### Get Single Patient
+```http
+GET /api/family-members/:id
+Authorization: Bearer <token>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "_id": "6987317f3708db127e51d4d1",
+    "fullName": "Jane Doe",
+    "dob": "1990-05-15T00:00:00.000Z",
+    "image": "https://res.cloudinary.com/.../photo.jpg",
+    "imageUrl": "https://res.cloudinary.com/.../photo.jpg",
+    "address": "123 Main St",
+    "phin": null,
+    "mhsc": null,
+    "notes": null,
+    "isActive": true
+  }
+}
+```
+
+**Errors:** `404` – Patient not found.
+
+---
+
+### Update Patient
+```http
+PUT /api/family-members/:id
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "fullName": "Jane Doe",
+  "dob": "1990-05-15",
+  "address": "456 New St",
+  "phin": "123456789",
+  "mhsc": "MHSC123",
+  "notes": "Updated notes"
+}
+```
+
+All fields are optional; only include fields to update.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "_id": "6987317f3708db127e51d4d1",
+    "fullName": "Jane Doe",
+    "dob": "1990-05-15T00:00:00.000Z",
+    "image": "https://res.cloudinary.com/.../photo.jpg",
+    "imageUrl": "https://res.cloudinary.com/.../photo.jpg",
+    "address": "456 New St",
+    "notes": "Updated notes"
+  }
+}
+```
+
+---
+
+### Delete Patient (Soft Delete)
+```http
+DELETE /api/family-members/:id
+Authorization: Bearer <token>
+```
+
+Sets `isActive: false`; patient is hidden from GET list but not removed from DB.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Family member deleted successfully"
+}
+```
+
+**Errors:** `404` – Patient not found.
 
 ---
 
@@ -254,6 +367,9 @@ Authorization: Bearer <token>
 | Store Address | PUT | /api/auth/profile | Yes |
 | Add Patient | POST | /api/family-members | Yes |
 | Get Patients | GET | /api/family-members | Yes |
+| Get Single Patient | GET | /api/family-members/:id | Yes |
+| Update Patient | PUT | /api/family-members/:id | Yes |
+| Delete Patient | DELETE | /api/family-members/:id | Yes |
 | Create Booking | POST | /api/bookings | Yes |
 | Get My Bookings | GET | /api/bookings | Yes |
 
@@ -284,17 +400,46 @@ curl -X GET https://doctor-house-call-backend.vercel.app/api/auth/me \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-### 4. Add Patient
+### 4. Add Patient (JSON, no image)
 ```bash
 curl -X POST https://doctor-house-call-backend.vercel.app/api/family-members \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{"name":"Jane Doe","dob":"1990-05-15"}'
+  -d '{"fullName":"Jane Doe","dob":"1990-05-15"}'
+```
+
+### 4b. Add Patient (with image – multipart)
+```bash
+curl -X POST https://doctor-house-call-backend.vercel.app/api/family-members \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "fullName=Jane Doe" \
+  -F "dob=1990-05-15" \
+  -F "image=@/path/to/photo.jpg"
 ```
 
 ### 5. Get Patients
 ```bash
 curl -X GET https://doctor-house-call-backend.vercel.app/api/family-members \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### 5b. Get Single Patient
+```bash
+curl -X GET https://doctor-house-call-backend.vercel.app/api/family-members/PATIENT_ID \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### 5c. Update Patient
+```bash
+curl -X PUT https://doctor-house-call-backend.vercel.app/api/family-members/PATIENT_ID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{"fullName":"Jane Doe","address":"456 New St","notes":"Updated"}'
+```
+
+### 5d. Delete Patient
+```bash
+curl -X DELETE https://doctor-house-call-backend.vercel.app/api/family-members/PATIENT_ID \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 

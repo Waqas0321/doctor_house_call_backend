@@ -7,14 +7,16 @@ const familyMemberSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  fullName: {
+    type: String,
+    trim: true
+  },
   firstName: {
     type: String,
-    required: true,
     trim: true
   },
   lastName: {
     type: String,
-    required: true,
     trim: true
   },
   dob: {

@@ -10,14 +10,24 @@ const getBaseUrl = (req) => {
   return host ? `${protocol}://${host}` : '';
 };
 
-/** Ensure each family member has image + imageUrl in the response */
-const withImageUrl = (member, baseUrl) => {
+/** Get fullName from doc (fullName or firstName + lastName for backward compat) */
+const getFullName = (doc) => {
+  if (doc.fullName && doc.fullName.trim()) return doc.fullName.trim();
+  const first = (doc.firstName || '').trim();
+  const last = (doc.lastName || '').trim();
+  return [first, last].filter(Boolean).join(' ') || null;
+};
+
+/** Ensure each family member has fullName, image + imageUrl in the response */
+const formatFamilyMemberResponse = (member, baseUrl) => {
   const doc = member.toObject ? member.toObject() : { ...member };
+  const fullName = getFullName(doc);
   const image = doc.image ?? null;
   const imageUrl = (image && (image.startsWith('/') || image.startsWith('uploads/')))
     ? `${baseUrl}/${image.replace(/^\//, '')}`
     : image;
-  return { ...doc, image: image || null, imageUrl: imageUrl || null };
+  const { firstName, lastName, ...rest } = doc;
+  return { ...rest, fullName, image: image || null, imageUrl: imageUrl || null };
 };
 
 /**
@@ -35,7 +45,7 @@ exports.getFamilyMembers = async (req, res, next) => {
       .lean();
 
     const baseUrl = getBaseUrl(req);
-    const data = familyMembers.map((m) => withImageUrl(m, baseUrl));
+    const data = familyMembers.map((m) => formatFamilyMemberResponse(m, baseUrl));
 
     res.status(200).json({
       success: true,
@@ -68,7 +78,7 @@ exports.getFamilyMember = async (req, res, next) => {
     }
 
     const baseUrl = getBaseUrl(req);
-    const data = withImageUrl(familyMember, baseUrl);
+    const data = formatFamilyMemberResponse(familyMember, baseUrl);
 
     res.status(200).json({
       success: true,
@@ -86,36 +96,40 @@ exports.getFamilyMember = async (req, res, next) => {
  */
 exports.createFamilyMember = async (req, res, next) => {
   try {
-    const { firstName, lastName, name, dob, image, address, phin, mhsc, notes } = req.body;
+    const { fullName, dob, image, address, phin, mhsc, notes } = req.body;
 
-    // Support both "name" (split) and "firstName/lastName"
-    let finalFirstName = firstName;
-    let finalLastName = lastName;
-    if (name && !firstName && !lastName) {
-      const nameParts = name.trim().split(/\s+/);
-      finalFirstName = nameParts[0] || '';
-      finalLastName = nameParts.slice(1).join(' ') || nameParts[0] || '';
-    }
-
-    if (!finalFirstName || !finalLastName || !dob) {
+    const trimmedFullName = (fullName || '').trim();
+    if (!trimmedFullName || !dob) {
       return res.status(400).json({
         success: false,
-        error: 'Name and date of birth are required'
+        error: 'Full name and date of birth are required'
       });
     }
 
-    // Handle image: upload to Cloudinary (get URL) or accept base64/URL from JSON
+    const nameParts = trimmedFullName.split(/\s+/);
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || nameParts[0] || '';
+
+    // Handle image: upload to Cloudinary (get URL) or fallback to base64
     let imageData = image || null;
     if (req.file && req.file.buffer) {
       const mimeType = req.file.mimetype || 'image/jpeg';
-      const imageUrl = await uploadImage(req.file.buffer, mimeType);
-      imageData = imageUrl || `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
+      const cloudinaryUrl = await uploadImage(req.file.buffer, mimeType);
+      if (cloudinaryUrl) {
+        imageData = cloudinaryUrl;
+      } else {
+        if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY) {
+          console.warn('Cloudinary not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET for image URLs.');
+        }
+        imageData = `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
+      }
     }
 
     const familyMember = await FamilyMember.create({
       userId: req.user.id,
-      firstName: finalFirstName,
-      lastName: finalLastName,
+      fullName: trimmedFullName,
+      firstName,
+      lastName,
       dob: new Date(dob),
       image: imageData,
       address,
@@ -137,7 +151,7 @@ exports.createFamilyMember = async (req, res, next) => {
     const baseUrl = getBaseUrl(req);
     res.status(201).json({
       success: true,
-      data: withImageUrl(familyMember, baseUrl)
+      data: formatFamilyMemberResponse(familyMember, baseUrl)
     });
   } catch (error) {
     next(error);
@@ -151,7 +165,7 @@ exports.createFamilyMember = async (req, res, next) => {
  */
 exports.updateFamilyMember = async (req, res, next) => {
   try {
-    const { firstName, lastName, name, dob, image, address, phin, mhsc, notes } = req.body;
+    const { fullName, dob, image, address, phin, mhsc, notes } = req.body;
 
     const familyMember = await FamilyMember.findOne({
       _id: req.params.id,
@@ -167,15 +181,25 @@ exports.updateFamilyMember = async (req, res, next) => {
 
     const oldData = { ...familyMember.toObject() };
 
-    if (name) {
-      const nameParts = name.trim().split(/\s+/);
-      familyMember.firstName = nameParts[0] || familyMember.firstName;
-      familyMember.lastName = nameParts.slice(1).join(' ') || nameParts[0] || familyMember.lastName;
+    if (fullName !== undefined && fullName !== null) {
+      const trimmedFullName = String(fullName).trim();
+      familyMember.fullName = trimmedFullName;
+      const nameParts = trimmedFullName.split(/\s+/);
+      familyMember.firstName = nameParts[0] || '';
+      familyMember.lastName = nameParts.slice(1).join(' ') || nameParts[0] || '';
     }
-    if (firstName) familyMember.firstName = firstName;
-    if (lastName) familyMember.lastName = lastName;
     if (dob) familyMember.dob = new Date(dob);
-    if (image !== undefined) familyMember.image = image;
+
+    if (req.file && req.file.buffer) {
+      const mimeType = req.file.mimetype || 'image/jpeg';
+      const cloudinaryUrl = await uploadImage(req.file.buffer, mimeType);
+      familyMember.image = cloudinaryUrl || `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
+      if (!cloudinaryUrl && (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY)) {
+        console.warn('Cloudinary not configured. Set CLOUDINARY_* env vars for image URLs.');
+      }
+    } else if (image !== undefined) {
+      familyMember.image = image;
+    }
     if (address !== undefined) familyMember.address = address;
     if (phin !== undefined) familyMember.phin = phin;
     if (mhsc !== undefined) familyMember.mhsc = mhsc;
@@ -196,7 +220,7 @@ exports.updateFamilyMember = async (req, res, next) => {
     const baseUrl = getBaseUrl(req);
     res.status(200).json({
       success: true,
-      data: withImageUrl(familyMember, baseUrl)
+      data: formatFamilyMemberResponse(familyMember, baseUrl)
     });
   } catch (error) {
     next(error);
