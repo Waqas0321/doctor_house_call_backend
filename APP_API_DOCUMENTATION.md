@@ -110,6 +110,24 @@ Content-Type: application/json
 }
 ```
 
+### Delete Account
+```http
+DELETE /api/auth/account
+Authorization: Bearer <token>
+```
+
+Permanently deactivates the account and anonymizes user data. The user will no longer be able to log in. No request body.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Account deleted successfully"
+}
+```
+
+**Errors:** `401` – Not authorized (missing or invalid token).
+
 ---
 
 ## 3. Patients (Family Members)
@@ -365,6 +383,7 @@ Authorization: Bearer <token>
 | Apple Sign-In | POST | /api/auth/apple | No |
 | Get Profile (address) | GET | /api/auth/me | Yes |
 | Store Address | PUT | /api/auth/profile | Yes |
+| Delete Account | DELETE | /api/auth/account | Yes |
 | Add Patient | POST | /api/family-members | Yes |
 | Get Patients | GET | /api/family-members | Yes |
 | Get Single Patient | GET | /api/family-members/:id | Yes |
@@ -397,6 +416,12 @@ curl -X PUT https://doctor-house-call-backend.vercel.app/api/auth/profile \
 ### 3. Get Profile
 ```bash
 curl -X GET https://doctor-house-call-backend.vercel.app/api/auth/me \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### 3b. Delete Account
+```bash
+curl -X DELETE https://doctor-house-call-backend.vercel.app/api/auth/account \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 

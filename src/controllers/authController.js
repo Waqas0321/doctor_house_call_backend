@@ -427,3 +427,48 @@ exports.updateProfile = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Delete account (soft delete – deactivates user, anonymizes data)
+ * @route   DELETE /api/auth/account
+ * @access  Private
+ */
+exports.deleteAccount = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    user.isActive = false;
+    user.email = user.email ? `deleted_${user._id}@deleted.local` : undefined;
+    user.providerUserId = undefined;
+    user.password = undefined;
+    user.firstName = undefined;
+    user.lastName = undefined;
+    user.phone = undefined;
+    user.address = undefined;
+    user.profilePicture = undefined;
+    user.devices = [];
+    await user.save({ validateBeforeSave: false });
+
+    await createAuditLog({
+      action: 'account_deleted',
+      userId: user._id,
+      entityType: 'user',
+      entityId: user._id,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Account deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
