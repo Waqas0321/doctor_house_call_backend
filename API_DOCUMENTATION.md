@@ -1,6 +1,13 @@
 # API Documentation
 
-**App developers:** See [APP_API_DOCUMENTATION.md](./APP_API_DOCUMENTATION.md) for app-side APIs (social auth, patients, bookings, address).
+This project has **two separate API docs**:
+
+| Document | Audience | Description |
+|----------|-----------|-------------|
+| **[APP_API_DOCUMENTATION.md](./APP_API_DOCUMENTATION.md)** | Mobile app (Flutter, etc.) | Social auth, profile, patients, coverage, bookings. Patient-facing. |
+| **[ADMIN_API_DOCUMENTATION.md](./ADMIN_API_DOCUMENTATION.md)** | Staff dashboard (admin panel) | Bookings, users, zones, audit logs, dashboard. Requires `isAdmin: true`. |
+
+Use the doc that matches your client. The sections below are a combined reference; for full detail use the links above.
 
 ---
 
@@ -195,20 +202,32 @@ GET /api/auth/me
 Authorization: Bearer <token>
 ```
 
-#### Update Profile
+Response includes `isAdmin` and `profilePicture` / `profilePictureUrl` (Cloudinary URL when set). Set `isAdmin: true` on a user (e.g. via MongoDB or `PUT /api/admin/users/:id`) to grant admin access.
+
+#### Update Profile (optional profile picture)
 ```http
 PUT /api/auth/profile
 Authorization: Bearer <token>
 Content-Type: application/json
+# Or multipart/form-data with optional "image" file for profile picture (Cloudinary)
 
 {
   "phone": "string (optional)",
   "email": "string (optional)",
   "firstName": "string (optional)",
   "lastName": "string (optional)",
-  "address": "string (optional)"
+  "address": "string (optional)",
+  "profilePicture": "url (optional, or send image file in multipart)"
 }
 ```
+
+#### Upload Profile Picture (Cloudinary)
+```http
+POST /api/auth/profile/picture
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+```
+Body: form field `image` (file, JPEG/PNG/WebP, max 5MB). Returns `{ "success": true, "data": { "profilePicture": "https://res.cloudinary.com/...", "profilePictureUrl": "..." } }`.
 
 ---
 
@@ -391,6 +410,28 @@ GET /api/admin/bookings?status=new&zoneId=zone_id&visitType=phone_call&startDate
 Authorization: Bearer <admin_token>
 ```
 
+#### Create Booking (manual, from admin panel)
+```http
+POST /api/admin/bookings
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "userId": "user_id_for_whom_booking_is_created",
+  "familyMemberId": "patient_id_belonging_to_that_user",
+  "contactPhone": "2045551234",
+  "contactEmail": "patient@example.com",
+  "visitType": "phone_call",
+  "lat": 49.8951,
+  "lng": -97.1384,
+  "address": "optional if lat/lng provided",
+  "notes": "optional",
+  "unitBuzzer": "optional",
+  "accessInstructions": "optional"
+}
+```
+Creates a booking on behalf of the given user. Patient must belong to that user. Confirmation email is sent.
+
 #### Get Booking Details
 ```http
 GET /api/admin/bookings/:id
@@ -430,9 +471,50 @@ Content-Type: application/json
 }
 ```
 
+#### Delete Booking
+```http
+DELETE /api/admin/bookings/:id
+Authorization: Bearer <admin_token>
+```
+
 #### Get Location Heatmap
 ```http
 GET /api/admin/bookings/heatmap?startDate=2024-01-01&endDate=2024-12-31&visitType=phone_call
+Authorization: Bearer <admin_token>
+```
+
+#### Get All Users (admin full access)
+```http
+GET /api/admin/users?isActive=true&isAdmin=false
+Authorization: Bearer <admin_token>
+```
+
+#### Get Single User
+```http
+GET /api/admin/users/:id
+Authorization: Bearer <admin_token>
+```
+
+#### Update User (e.g. set isAdmin)
+```http
+PUT /api/admin/users/:id
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "isAdmin": true,
+  "isActive": true,
+  "firstName": "string (optional)",
+  "lastName": "string (optional)",
+  "email": "string (optional)",
+  "phone": "string (optional)",
+  "address": "string (optional)"
+}
+```
+
+#### Delete / Deactivate User
+```http
+DELETE /api/admin/users/:id
 Authorization: Bearer <admin_token>
 ```
 

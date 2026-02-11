@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const { createAuditLog } = require('../services/auditService');
+const { uploadImage } = require('../services/uploadService');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -117,17 +118,21 @@ exports.facebookAuth = (req, res, next) => handleSocialAuth('facebook', req, res
 exports.appleAuth = (req, res, next) => handleSocialAuth('apple', req, res, next);
 
 /**
- * @desc    Get current user
+ * @desc    Get current user (includes isAdmin for staff dashboard)
  * @route   GET /api/auth/me
  * @access  Private
  */
 exports.getMe = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id).select('-devices');
-
+    const user = await User.findById(req.user.id).select('-devices -password');
+    const data = user ? user.toObject() : null;
+    if (data) {
+      data.isAdmin = !!user.isAdmin;
+      data.profilePictureUrl = data.profilePicture || null;
+    }
     res.status(200).json({
       success: true,
-      data: user
+      data: data || user
     });
   } catch (error) {
     next(error);
@@ -394,13 +399,13 @@ exports.login = async (req, res, next) => {
 };
 
 /**
- * @desc    Update user profile
+ * @desc    Update user profile (optional profile picture via multipart)
  * @route   PUT /api/auth/profile
  * @access  Private
  */
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { phone, email, firstName, lastName, address } = req.body;
+    const { phone, email, firstName, lastName, address, profilePicture } = req.body;
 
     const user = await User.findById(req.user.id);
     if (!user) {
@@ -410,17 +415,73 @@ exports.updateProfile = async (req, res, next) => {
       });
     }
 
-    if (phone) user.phone = phone;
-    if (email) user.email = email;
-    if (firstName) user.firstName = firstName;
-    if (lastName) user.lastName = lastName;
+    if (phone !== undefined) user.phone = phone;
+    if (email !== undefined) user.email = email;
+    if (firstName !== undefined) user.firstName = firstName;
+    if (lastName !== undefined) user.lastName = lastName;
     if (address !== undefined) user.address = address;
 
+    if (req.file && req.file.buffer) {
+      const mimeType = req.file.mimetype || 'image/jpeg';
+      const url = await uploadImage(req.file.buffer, mimeType, 'profile-pictures');
+      if (url) user.profilePicture = url;
+    } else if (profilePicture !== undefined) {
+      user.profilePicture = profilePicture || null;
+    }
+
+    await user.save();
+
+    const data = user.toObject();
+    data.profilePictureUrl = data.profilePicture || null;
+    res.status(200).json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Upload profile picture (Cloudinary)
+ * @route   POST /api/auth/profile/picture
+ * @access  Private
+ */
+exports.uploadProfilePicture = async (req, res, next) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        error: 'Image file is required'
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const mimeType = req.file.mimetype || 'image/jpeg';
+    const url = await uploadImage(req.file.buffer, mimeType, 'profile-pictures');
+    if (!url) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to upload image. Check Cloudinary configuration.'
+      });
+    }
+
+    user.profilePicture = url;
     await user.save();
 
     res.status(200).json({
       success: true,
-      data: user
+      data: {
+        profilePicture: url,
+        profilePictureUrl: url
+      }
     });
   } catch (error) {
     next(error);

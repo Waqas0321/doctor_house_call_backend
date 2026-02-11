@@ -1,8 +1,11 @@
 const Booking = require('../models/Booking');
 const Zone = require('../models/Zone');
-const { normalizeAndGeocode } = require('../services/addressService');
+const User = require('../models/User');
+const FamilyMember = require('../models/FamilyMember');
+const { normalizeAndGeocode, reverseGeocode } = require('../services/addressService');
 const { findMatchingZone, getAvailableVisitTypes } = require('../services/zoneService');
-const { logBookingOverride } = require('../services/auditService');
+const { logBookingOverride, createAuditLog } = require('../services/auditService');
+const { sendConfirmation } = require('../services/notificationService');
 const AuditLog = require('../models/AuditLog');
 
 /**
@@ -26,14 +29,134 @@ exports.getAllBookings = async (req, res, next) => {
 
     const bookings = await Booking.find(filter)
       .populate('zoneId', 'name')
-      .populate('userId', 'firstName lastName email phone')
-      .populate('familyMemberId', 'firstName lastName dob')
+      .populate('userId', 'firstName lastName email phone isAdmin')
+      .populate('familyMemberId', 'fullName firstName lastName dob')
       .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
       count: bookings.length,
       data: bookings
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Create booking on behalf of a user (manual booking from admin panel)
+ * @route   POST /api/admin/bookings
+ * @access  Private/Admin
+ */
+exports.createBooking = async (req, res, next) => {
+  try {
+    const {
+      userId,
+      familyMemberId,
+      contactPhone,
+      contactEmail,
+      notes,
+      visitType,
+      lat,
+      lng,
+      address,
+      unitBuzzer,
+      accessInstructions
+    } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+    if (!familyMemberId) {
+      return res.status(400).json({ success: false, error: 'familyMemberId (patient) is required' });
+    }
+    if (!contactPhone) {
+      return res.status(400).json({ success: false, error: 'Contact phone is required' });
+    }
+    if (!contactEmail) {
+      return res.status(400).json({ success: false, error: 'Contact email is required' });
+    }
+    if (!visitType || !['phone_call', 'house_call'].includes(visitType)) {
+      return res.status(400).json({ success: false, error: 'visitType must be phone_call or house_call' });
+    }
+
+    let addressData;
+    if (lat != null && lng != null) {
+      addressData = await reverseGeocode(parseFloat(lat), parseFloat(lng));
+    } else if (address) {
+      addressData = await normalizeAndGeocode(address);
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Location required: provide lat/lng or address'
+      });
+    }
+
+    const familyMember = await FamilyMember.findOne({
+      _id: familyMemberId,
+      userId,
+      isActive: true
+    });
+    if (!familyMember) {
+      return res.status(400).json({
+        success: false,
+        error: 'Patient not found or does not belong to this user'
+      });
+    }
+
+    const fullName = familyMember.fullName || [familyMember.firstName, familyMember.lastName].filter(Boolean).join(' ').trim();
+    const nameParts = (fullName || 'Patient').split(/\s+/);
+    const patientInfo = {
+      firstName: nameParts[0] || familyMember.firstName || '',
+      lastName: nameParts.slice(1).join(' ') || familyMember.lastName || '',
+      dob: familyMember.dob,
+      phin: familyMember.phin,
+      mhsc: familyMember.mhsc
+    };
+
+    const zone = await findMatchingZone(addressData.lat, addressData.lng);
+
+    const booking = await Booking.create({
+      visitType,
+      address: {
+        raw: address || addressData.raw,
+        normalized: addressData.normalized,
+        street: addressData.street,
+        city: addressData.city,
+        province: addressData.province,
+        postalCode: addressData.postalCode,
+        country: addressData.country
+      },
+      location: { lat: addressData.lat, lng: addressData.lng },
+      unitBuzzer,
+      accessInstructions,
+      zoneId: zone?._id,
+      matchedZoneName: zone?.name,
+      patientInfo,
+      familyMemberId,
+      contactPhone,
+      contactEmail,
+      confirmationMethod: 'email',
+      notes,
+      userId,
+      safetyAcknowledgements: { notForEmergencies: true, call911Acknowledged: true }
+    });
+
+    await sendConfirmation(booking);
+
+    await createAuditLog({
+      action: 'booking_created_by_admin',
+      userId: req.user.id,
+      entityType: 'booking',
+      entityId: booking._id,
+      changes: { createdForUser: userId, booking },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.status(201).json({
+      success: true,
+      data: booking
     });
   } catch (error) {
     next(error);
@@ -187,6 +310,42 @@ exports.overrideBooking = async (req, res, next) => {
 };
 
 /**
+ * @desc    Delete booking (admin)
+ * @route   DELETE /api/admin/bookings/:id
+ * @access  Private/Admin
+ */
+exports.deleteBooking = async (req, res, next) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        error: 'Booking not found'
+      });
+    }
+
+    await booking.deleteOne();
+
+    await AuditLog.create({
+      action: 'booking_deleted',
+      adminId: req.user.id,
+      entityType: 'booking',
+      entityId: booking._id,
+      changes: { deleted: true, status: booking.status },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Booking deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * @desc    Get location heatmap data
  * @route   GET /api/admin/bookings/heatmap
  * @access  Private/Admin
@@ -291,6 +450,8 @@ exports.createZone = async (req, res, next) => {
       boundaryData,
       allowPhoneCall,
       allowHouseCall,
+      phoneCallsFull,
+      houseCallsFull,
       priority,
       isActive
     } = req.body;
@@ -307,7 +468,9 @@ exports.createZone = async (req, res, next) => {
       boundaryData,
       allowPhoneCall: allowPhoneCall !== undefined ? allowPhoneCall : true,
       allowHouseCall: allowHouseCall !== undefined ? allowHouseCall : true,
-      priority: priority || 0,
+      phoneCallsFull: phoneCallsFull === true,
+      houseCallsFull: houseCallsFull === true,
+      priority: priority ?? 0,
       isActive: isActive !== undefined ? isActive : true
     });
 
@@ -389,6 +552,52 @@ exports.updateZone = async (req, res, next) => {
 };
 
 /**
+ * @desc    Enable or disable zone (toggle isActive)
+ * @route   PATCH /api/admin/zones/:id/active
+ * @access  Private/Admin
+ */
+exports.updateZoneActive = async (req, res, next) => {
+  try {
+    const zone = await Zone.findById(req.params.id);
+    if (!zone) {
+      return res.status(404).json({
+        success: false,
+        error: 'Zone not found'
+      });
+    }
+
+    const { isActive } = req.body;
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'isActive must be true or false'
+      });
+    }
+
+    const previous = zone.isActive;
+    zone.isActive = isActive;
+    await zone.save();
+
+    await AuditLog.create({
+      action: 'zone_updated',
+      adminId: req.user.id,
+      entityType: 'zone',
+      entityId: zone._id,
+      changes: { isActive: { from: previous, to: isActive } },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.status(200).json({
+      success: true,
+      data: zone
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * @desc    Delete zone
  * @route   DELETE /api/admin/zones/:id
  * @access  Private/Admin
@@ -453,6 +662,148 @@ exports.getAuditLogs = async (req, res, next) => {
       success: true,
       count: logs.length,
       data: logs
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --------------- Admin User Management (full access) ---------------
+
+/**
+ * @desc    Get all users (admin)
+ * @route   GET /api/admin/users
+ * @access  Private/Admin
+ */
+exports.getAllUsers = async (req, res, next) => {
+  try {
+    const { isActive, isAdmin: filterAdmin } = req.query;
+    const filter = {};
+    if (isActive !== undefined) filter.isActive = isActive === 'true';
+    if (filterAdmin !== undefined) filter.isAdmin = filterAdmin === 'true';
+
+    const users = await User.find(filter)
+      .select('-password -devices')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get single user (admin)
+ * @route   GET /api/admin/users/:id
+ * @access  Private/Admin
+ */
+exports.getUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password -devices');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    res.status(200).json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Update user (admin) – e.g. set isAdmin
+ * @route   PUT /api/admin/users/:id
+ * @access  Private/Admin
+ */
+exports.updateUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const { isAdmin, isActive, firstName, lastName, email, phone, address } = req.body;
+    if (isAdmin !== undefined) user.isAdmin = !!isAdmin;
+    if (isActive !== undefined) user.isActive = !!isActive;
+    if (firstName !== undefined) user.firstName = firstName;
+    if (lastName !== undefined) user.lastName = lastName;
+    if (email !== undefined) user.email = email;
+    if (phone !== undefined) user.phone = phone;
+    if (address !== undefined) user.address = address;
+
+    await user.save();
+
+    await AuditLog.create({
+      action: 'user_updated_by_admin',
+      adminId: req.user.id,
+      entityType: 'user',
+      entityId: user._id,
+      changes: req.body,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.status(200).json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Delete / deactivate user (admin)
+ * @route   DELETE /api/admin/users/:id
+ * @access  Private/Admin
+ */
+exports.deleteUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    user.isActive = false;
+    user.email = user.email ? `deleted_${user._id}@deleted.local` : undefined;
+    user.providerUserId = undefined;
+    user.password = undefined;
+    user.firstName = undefined;
+    user.lastName = undefined;
+    user.phone = undefined;
+    user.address = undefined;
+    user.profilePicture = undefined;
+    user.devices = [];
+    await user.save({ validateBeforeSave: false });
+
+    await AuditLog.create({
+      action: 'user_deleted_by_admin',
+      adminId: req.user.id,
+      entityType: 'user',
+      entityId: user._id,
+      changes: { deleted: true },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent')
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'User deactivated successfully'
     });
   } catch (error) {
     next(error);

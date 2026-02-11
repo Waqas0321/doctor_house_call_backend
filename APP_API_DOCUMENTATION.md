@@ -1,12 +1,10 @@
 # App API Documentation
 
-API documentation for the mobile app. All endpoints require `Authorization: Bearer <token>` except social auth and login.
+**Mobile app only.** Use this document for the patient-facing app (Flutter, etc.). For staff dashboard APIs, see [ADMIN_API_DOCUMENTATION.md](./ADMIN_API_DOCUMENTATION.md).
 
-**Base URL (Production):** `https://doctor-house-call-backend.vercel.app`
-
-**Base URL (Local):** `http://localhost:3000`
-
-API paths: `/api/auth/google`, `/api/family-members`, etc.
+- All endpoints require **`Authorization: Bearer <token>`** except social auth, login, and coverage/zones.
+- **Base URL (Production):** `https://doctor-house-call-backend.vercel.app`
+- **Base URL (Local):** `http://localhost:3000`
 
 ---
 
@@ -64,7 +62,7 @@ Content-Type: application/json
 
 ## 2. Get & Store Address
 
-### Get My Profile (includes address)
+### Get My Profile (includes address & profile picture)
 ```http
 GET /api/auth/me
 Authorization: Bearer <token>
@@ -75,37 +73,55 @@ Authorization: Bearer <token>
 {
   "success": true,
   "data": {
-    "id": "...",
+    "_id": "...",
     "email": "user@example.com",
     "firstName": "John",
     "lastName": "Doe",
     "address": "123 Main St, Winnipeg, MB",
-    "phone": "2045551234"
+    "phone": "2045551234",
+    "profilePicture": "https://res.cloudinary.com/.../profile.jpg",
+    "profilePictureUrl": "https://res.cloudinary.com/.../profile.jpg",
+    "isAdmin": false
   }
 }
 ```
 
-### Store Address
+### Update Profile (optional profile picture)
 ```http
 PUT /api/auth/profile
 Authorization: Bearer <token>
 Content-Type: application/json
 ```
+Or **multipart/form-data** with optional `image` file to update profile picture (Cloudinary).
 
-**Request:**
+**Request (JSON):**
 ```json
 {
-  "address": "123 Main St, Winnipeg, MB"
+  "address": "123 Main St, Winnipeg, MB",
+  "phone": "2045551234",
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "user@example.com"
 }
 ```
+
+**Response:** `{ "success": true, "data": { ...user } }`
+
+### Upload Profile Picture
+```http
+POST /api/auth/profile/picture
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+```
+Body: form field **`image`** (file, JPEG/PNG/WebP, max 5MB). Uploaded to Cloudinary.
 
 **Response:**
 ```json
 {
   "success": true,
   "data": {
-    "id": "...",
-    "address": "123 Main St, Winnipeg, MB"
+    "profilePicture": "https://res.cloudinary.com/.../profile.jpg",
+    "profilePictureUrl": "https://res.cloudinary.com/.../profile.jpg"
   }
 }
 ```
@@ -305,7 +321,81 @@ Sets `isActive: false`; patient is hidden from GET list but not removed from DB.
 
 ---
 
-## 4. Bookings
+## 4. Service Zones & Coverage
+
+Admins add service zones in the staff dashboard. Users can check if their address or location is covered before creating a booking. **No auth required** for these endpoints.
+
+### List Active Service Zones
+```http
+GET /api/coverage/zones
+```
+
+Returns all active zones (name, phone/house availability, priority). Use this to show “We serve: Downtown Core, St. Vital…” in the app.
+
+**Response:**
+```json
+{
+  "success": true,
+  "count": 3,
+  "data": [
+    {
+      "_id": "zone_id",
+      "name": "Downtown Core",
+      "allowPhoneCall": true,
+      "allowHouseCall": true,
+      "priority": 1
+    }
+  ]
+}
+```
+
+### Check Coverage (address or lat/lng)
+```http
+POST /api/coverage/check
+Content-Type: application/json
+```
+
+Check if an address or coordinates fall inside a service zone. Use before or during the booking flow.
+
+**Request (by address):**
+```json
+{
+  "address": "123 Main St, Winnipeg, MB"
+}
+```
+
+**Request (by coordinates, e.g. from device GPS):**
+```json
+{
+  "lat": 49.8951,
+  "lng": -97.1384
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "address": "123 Main St, Winnipeg, MB",
+    "lat": 49.8951,
+    "lng": -97.1384,
+    "zone": { "id": "zone_id", "name": "Downtown Core" },
+    "availableTypes": {
+      "phoneCall": true,
+      "houseCall": true,
+      "message": "Good news — we offer both phone and in-home visits in your area."
+    },
+    "isInServiceArea": true
+  }
+}
+```
+
+When `isInServiceArea` is true, the user can create a booking for that location. Admin creates zones via **POST /api/admin/zones** (staff dashboard).
+
+---
+
+## 5. Bookings
 
 ### Create Booking
 ```http
@@ -381,14 +471,17 @@ Authorization: Bearer <token>
 |-----|--------|----------|------|
 | Google Sign-In | POST | /api/auth/google | No |
 | Apple Sign-In | POST | /api/auth/apple | No |
-| Get Profile (address) | GET | /api/auth/me | Yes |
-| Store Address | PUT | /api/auth/profile | Yes |
+| Get Profile | GET | /api/auth/me | Yes |
+| Update Profile | PUT | /api/auth/profile | Yes |
+| Upload Profile Picture | POST | /api/auth/profile/picture | Yes |
 | Delete Account | DELETE | /api/auth/account | Yes |
 | Add Patient | POST | /api/family-members | Yes |
 | Get Patients | GET | /api/family-members | Yes |
 | Get Single Patient | GET | /api/family-members/:id | Yes |
 | Update Patient | PUT | /api/family-members/:id | Yes |
 | Delete Patient | DELETE | /api/family-members/:id | Yes |
+| List Service Zones | GET | /api/coverage/zones | No |
+| Check Coverage | POST | /api/coverage/check | No |
 | Create Booking | POST | /api/bookings | Yes |
 | Get My Bookings | GET | /api/bookings | Yes |
 
@@ -466,6 +559,22 @@ curl -X PUT https://doctor-house-call-backend.vercel.app/api/family-members/PATI
 ```bash
 curl -X DELETE https://doctor-house-call-backend.vercel.app/api/family-members/PATIENT_ID \
   -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### 5e. List Service Zones
+```bash
+curl -X GET https://doctor-house-call-backend.vercel.app/api/coverage/zones
+```
+
+### 5f. Check Coverage
+```bash
+curl -X POST https://doctor-house-call-backend.vercel.app/api/coverage/check \
+  -H "Content-Type: application/json" \
+  -d '{"address":"123 Main St, Winnipeg, MB"}'
+# Or by coordinates:
+curl -X POST https://doctor-house-call-backend.vercel.app/api/coverage/check \
+  -H "Content-Type: application/json" \
+  -d '{"lat":49.8951,"lng":-97.1384}'
 ```
 
 ### 6. Create Booking
