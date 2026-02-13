@@ -3,7 +3,8 @@ const router = express.Router();
 const {
   getDashboardStats,
   getDashboardCharts,
-  getRecentActivity
+  getRecentActivity,
+  getAnalytics
 } = require('../controllers/dashboardController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -15,5 +16,6 @@ router.use(authorize('admin'));
 router.get('/stats', getDashboardStats);
 router.get('/charts', getDashboardCharts);
 router.get('/activity', getRecentActivity);
+router.get('/analytics', getAnalytics);
 
 module.exports = router;

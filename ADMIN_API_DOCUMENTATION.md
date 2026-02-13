@@ -276,7 +276,57 @@ Authorization: Bearer <admin_token>
 
 ---
 
-## 5. Audit Logs
+## 5. Push Notifications
+
+### Get All Notifications
+```http
+GET /api/admin/notifications?status=sent&type=manual
+Authorization: Bearer <admin_token>
+```
+Returns notifications with stats: `total`, `sent`, `draft`, `failed`. Display on admin panel.
+
+### Create Manual Notification
+```http
+POST /api/admin/notifications
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "title": "Service Zone Update",
+  "body": "Downtown Core zone has been updated successfully",
+  "targetAudience": {
+    "type": "all_users",
+    "userId": "optional for single_user",
+    "bookingId": "optional for booking_id",
+    "zoneId": "optional for service_zone"
+  },
+  "deliveryType": "push_only",
+  "scheduledFor": "optional ISO date",
+  "deepLink": "optional wdhc://path"
+}
+```
+`targetAudience.type`: `single_user`, `booking_id`, `service_zone`, `all_users`. Sends push and stores in DB; displays on admin and app.
+
+### Get Notification
+```http
+GET /api/admin/notifications/:id
+Authorization: Bearer <admin_token>
+```
+
+### Delete Notification
+```http
+DELETE /api/admin/notifications/:id
+Authorization: Bearer <admin_token>
+```
+
+**Auto push:** Admins get push when app user creates booking. Users get push when admin updates or creates their booking.
+
+---
+
+## 6. Audit Logs
 
 ### Get Audit Logs
 ```http
@@ -288,7 +338,45 @@ Authorization: Bearer <admin_token>
 
 ---
 
-## 6. Dashboard
+## 7. Dashboard & Analytics
+
+### Get Heatmap & Analytics (combined, auto-detected)
+```http
+GET /api/dashboard/analytics?period=7days|30days|90days
+Authorization: Bearer <admin_token>
+```
+Returns all Heatmap & Analytics data in one call:
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "overview": {
+      "totalBookings": 1247,
+      "activeZones": 12,
+      "avgResponseTimeMinutes": 2.5,
+      "customerSatisfaction": 94
+    },
+    "zoneHeatmap": [
+      { "zoneId": "...", "zoneName": "Downtown Core", "count": 342, "activityLevel": "high" },
+      { "zoneId": "...", "zoneName": "St. Vital / St. Boniface", "count": 289, "activityLevel": "high" },
+      { "zoneName": "Transcona Perimeter", "count": 156, "activityLevel": "medium" }
+    ],
+    "bookingTrends": [
+      { "day": "Mon", "date": "2024-01-15", "count": 65 },
+      { "day": "Tue", "date": "2024-01-16", "count": 80 }
+    ],
+    "heatmapData": [
+      { "lat": 49.89, "lng": -97.13, "visitType": "phone_call", "createdAt": "..." }
+    ]
+  }
+}
+```
+- **overview**: Total Bookings, Active Zones, Avg Response Time (minutes), Customer Satisfaction (%)
+- **zoneHeatmap**: Zones with count and activityLevel (`high`, `medium`, `low`)
+- **bookingTrends**: Last 7 days by weekday
+- **heatmapData**: Lat/lng for map visualization
 
 ### Get Dashboard Statistics
 ```http
@@ -355,6 +443,10 @@ Authorization: Bearer <admin_token>
 | Update Zone | PUT | /api/admin/zones/:id | Admin |
 | Delete Zone | DELETE | /api/admin/zones/:id | Admin |
 | Get Audit Logs | GET | /api/admin/audit-logs | Admin |
+| Get Notifications | GET | /api/admin/notifications | Admin |
+| Create Notification | POST | /api/admin/notifications | Admin |
+| Delete Notification | DELETE | /api/admin/notifications/:id | Admin |
+| Heatmap & Analytics | GET | /api/dashboard/analytics | Admin |
 | Dashboard Stats | GET | /api/dashboard/stats | Admin |
 | Dashboard Charts | GET | /api/dashboard/charts | Admin |
 | Dashboard Activity | GET | /api/dashboard/activity | Admin |
@@ -443,6 +535,12 @@ curl -X PATCH https://doctor-house-call-backend.vercel.app/api/admin/zones/ZONE_
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ADMIN_TOKEN" \
   -d '{"isActive":true}'
+```
+
+### Heatmap & Analytics
+```bash
+curl -X GET "https://doctor-house-call-backend.vercel.app/api/dashboard/analytics?period=7days" \
+  -H "Authorization: Bearer ADMIN_TOKEN"
 ```
 
 ### Dashboard stats

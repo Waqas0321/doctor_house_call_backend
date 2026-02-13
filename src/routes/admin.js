@@ -17,9 +17,17 @@ const {
   getAuditLogs,
   getAllUsers,
   getUser,
+  getTokenForUser,
+  getUserFamilyMembers,
   updateUser,
   deleteUser
 } = require('../controllers/adminController');
+const {
+  getAllNotifications,
+  createNotification,
+  getNotification,
+  deleteNotification
+} = require('../controllers/notificationController');
 const { protect, authorize } = require('../middleware/auth');
 
 // All admin routes require authentication and admin role
@@ -37,6 +45,8 @@ router.delete('/bookings/:id', deleteBooking);
 
 // User management (admin full access)
 router.get('/users', getAllUsers);
+router.get('/users/:id/token', getTokenForUser);
+router.get('/users/:id/family-members', getUserFamilyMembers);
 router.get('/users/:id', getUser);
 router.put('/users/:id', updateUser);
 router.delete('/users/:id', deleteUser);
@@ -51,5 +61,11 @@ router.delete('/zones/:id', deleteZone);
 
 // Audit log routes
 router.get('/audit-logs', getAuditLogs);
+
+// Notification routes
+router.get('/notifications', getAllNotifications);
+router.post('/notifications', createNotification);
+router.get('/notifications/:id', getNotification);
+router.delete('/notifications/:id', deleteNotification);
 
 module.exports = router;

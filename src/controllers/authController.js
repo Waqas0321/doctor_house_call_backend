@@ -146,7 +146,7 @@ exports.getMe = async (req, res, next) => {
  */
 exports.register = async (req, res, next) => {
   try {
-    const { email, password, firstName, lastName, phone, address } = req.body;
+    const { email, password, firstName, lastName, phone, address, isAdmin } = req.body;
 
     // Validation
     if (!email || !password) {
@@ -172,7 +172,7 @@ exports.register = async (req, res, next) => {
       });
     }
 
-    // Create user
+    // Create user (isAdmin: true when registering from admin panel, else false)
     const user = await User.create({
       authProvider: 'email',
       email: email.toLowerCase(),
@@ -181,7 +181,7 @@ exports.register = async (req, res, next) => {
       lastName,
       phone,
       address,
-      isAdmin: false
+      isAdmin: isAdmin === true
     });
 
     const token = generateToken(user._id);
@@ -527,6 +527,57 @@ exports.deleteAccount = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Account deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Register device token for push notifications
+ * @route   POST /api/auth/device
+ * @access  Private
+ */
+exports.registerDevice = async (req, res, next) => {
+  try {
+    const { deviceToken, deviceType } = req.body;
+
+    if (!deviceToken || !deviceType) {
+      return res.status(400).json({
+        success: false,
+        error: 'deviceToken and deviceType (ios|android) are required'
+      });
+    }
+
+    if (!['ios', 'android'].includes(deviceType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'deviceType must be ios or android'
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    user.devices = user.devices || [];
+    const existing = user.devices.find((d) => d.deviceToken === deviceToken);
+    if (existing) {
+      existing.lastActiveAt = new Date();
+      existing.deviceType = deviceType;
+    } else {
+      user.devices.push({
+        deviceToken,
+        deviceType,
+        lastActiveAt: new Date()
+      });
+    }
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Device registered for push notifications'
     });
   } catch (error) {
     next(error);

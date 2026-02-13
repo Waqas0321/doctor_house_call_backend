@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const pushNotificationSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['manual', 'booking_created', 'booking_updated'],
+    default: 'manual'
+  },
   title: {
     type: String,
     required: true,
@@ -14,7 +19,7 @@ const pushNotificationSchema = new mongoose.Schema({
   targetAudience: {
     type: {
       type: String,
-      enum: ['single_user', 'booking_id', 'service_zone', 'all_users'],
+      enum: ['single_user', 'booking_id', 'service_zone', 'all_users', 'admins'],
       required: true
     },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -46,9 +51,9 @@ const pushNotificationSchema = new mongoose.Schema({
   }],
   sentBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'User'
   },
+  recipientUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   deepLink: {
     type: String,
     trim: true
@@ -60,5 +65,6 @@ const pushNotificationSchema = new mongoose.Schema({
 // Indexes
 pushNotificationSchema.index({ status: 1, scheduledFor: 1 });
 pushNotificationSchema.index({ sentBy: 1, createdAt: -1 });
+pushNotificationSchema.index({ recipientUserIds: 1, createdAt: -1 });
 
 module.exports = mongoose.model('PushNotification', pushNotificationSchema);

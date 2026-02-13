@@ -126,6 +126,22 @@ Body: form field **`image`** (file, JPEG/PNG/WebP, max 5MB). Uploaded to Cloudin
 }
 ```
 
+### Register Device (Push Notifications)
+```http
+POST /api/auth/device
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "deviceToken": "fcm_device_token_from_flutter",
+  "deviceType": "ios"
+}
+```
+`deviceType`: `ios` or `android`. Call this after login to receive push notifications.
+
 ### Delete Account
 ```http
 DELETE /api/auth/account
@@ -484,6 +500,38 @@ Authorization: Bearer <token>
 | Check Coverage | POST | /api/coverage/check | No |
 | Create Booking | POST | /api/bookings | Yes |
 | Get My Bookings | GET | /api/bookings | Yes |
+| Register Device | POST | /api/auth/device | Yes |
+| Get My Notifications | GET | /api/notifications | Yes |
+
+---
+
+## 6. Notifications (In-App List)
+
+### Get My Notifications
+```http
+GET /api/notifications
+Authorization: Bearer <token>
+```
+Returns notifications sent to the user (manual, booking updates, etc.).
+
+**Response:**
+```json
+{
+  "success": true,
+  "count": 5,
+  "data": [
+    {
+      "_id": "...",
+      "type": "booking_updated",
+      "title": "Booking Update",
+      "body": "Your booking status has been updated to confirmed.",
+      "sentAt": "2024-01-15T10:30:00.000Z",
+      "createdAt": "...",
+      "deepLink": "wdhc://booking/..."
+    }
+  ]
+}
+```
 
 ---
 

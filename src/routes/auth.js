@@ -11,7 +11,8 @@ const {
   getMe,
   updateProfile,
   uploadProfilePicture,
-  deleteAccount
+  deleteAccount,
+  registerDevice
 } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
 const upload = require('../config/multer');
@@ -56,5 +57,8 @@ router.post('/profile/picture', protect, (req, res, next) => {
 
 // Delete account (app)
 router.delete('/account', protect, deleteAccount);
+
+// Register device for push notifications
+router.post('/device', protect, registerDevice);
 
 module.exports = router;

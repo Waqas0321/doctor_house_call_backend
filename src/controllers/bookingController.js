@@ -3,6 +3,7 @@ const FamilyMember = require('../models/FamilyMember');
 const { normalizeAndGeocode, reverseGeocode } = require('../services/addressService');
 const { findMatchingZone, getAvailableVisitTypes } = require('../services/zoneService');
 const { sendConfirmation } = require('../services/notificationService');
+const { notifyAdminsBookingCreated } = require('../services/pushNotificationService');
 const { createAuditLog } = require('../services/auditService');
 
 /**
@@ -133,8 +134,11 @@ exports.createBooking = async (req, res, next) => {
       safetyAcknowledgements: safetyAck
     });
 
-    // Send confirmation
+    // Send confirmation (email/SMS)
     await sendConfirmation(booking);
+
+    // Push notification to admins
+    notifyAdminsBookingCreated(booking).catch((e) => console.error('Push to admins:', e.message));
 
     // Create audit log
     await createAuditLog({

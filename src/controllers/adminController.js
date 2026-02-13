@@ -1,3 +1,4 @@
+const jwt = require('jsonwebtoken');
 const Booking = require('../models/Booking');
 const Zone = require('../models/Zone');
 const User = require('../models/User');
@@ -6,6 +7,7 @@ const { normalizeAndGeocode, reverseGeocode } = require('../services/addressServ
 const { findMatchingZone, getAvailableVisitTypes } = require('../services/zoneService');
 const { logBookingOverride, createAuditLog } = require('../services/auditService');
 const { sendConfirmation } = require('../services/notificationService');
+const { notifyUserBookingUpdated, notifyUserBookingCreatedByAdmin } = require('../services/pushNotificationService');
 const AuditLog = require('../models/AuditLog');
 
 /**
@@ -144,6 +146,8 @@ exports.createBooking = async (req, res, next) => {
 
     await sendConfirmation(booking);
 
+    notifyUserBookingCreatedByAdmin(booking).catch((e) => console.error('Push to user:', e.message));
+
     await createAuditLog({
       action: 'booking_created_by_admin',
       userId: req.user.id,
@@ -230,6 +234,10 @@ exports.updateBookingStatus = async (req, res, next) => {
     }
 
     await booking.save();
+
+    if (status && oldStatus !== status) {
+      notifyUserBookingUpdated(booking, oldStatus, booking.status).catch((e) => console.error('Push to user:', e.message));
+    }
 
     await AuditLog.create({
       action: status === 'confirmed' ? 'booking_confirmed' : 'booking_updated',
@@ -713,6 +721,91 @@ exports.getUser = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: user
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get a short-lived token for a user (admin only). Use this token to call
+ *          GET /api/family-members (same as the app) to get that user's family members.
+ * @route   GET /api/admin/users/:id/token
+ * @access  Private/Admin
+ */
+exports.getTokenForUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select('_id isActive');
+    if (!user || !user.isActive) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        success: false,
+        error: 'Server configuration error'
+      });
+    }
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '5m' }
+    );
+    res.status(200).json({
+      success: true,
+      data: { token }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get family members for a user (admin – for manual booking dropdown)
+ * @route   GET /api/admin/users/:id/family-members
+ * @access  Private/Admin
+ * Same shape as app GET /api/family-members: _id, userId, fullName, dob, image, imageUrl, etc.
+ */
+exports.getUserFamilyMembers = async (req, res, next) => {
+  try {
+    const mongoose = require('mongoose');
+    const userId = req.params.id;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'User id is required' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, error: 'Invalid user id' });
+    }
+
+    const familyMembers = await FamilyMember.find({
+      userId: new mongoose.Types.ObjectId(userId),
+      isActive: true
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const data = familyMembers.map((m) => {
+      const fullName = m.fullName || [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || '—';
+      return {
+        _id: m._id.toString(),
+        userId: m.userId?.toString(),
+        fullName,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        dob: m.dob,
+        image: m.image || null,
+        imageUrl: m.image || null,
+        address: m.address || null,
+        isActive: m.isActive
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: data.length,
+      data
     });
   } catch (error) {
     next(error);
