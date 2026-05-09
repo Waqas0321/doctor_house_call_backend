@@ -7,6 +7,10 @@ const PushNotification = require('../models/PushNotification');
 let admin = null;
 let fcmInitialized = false;
 
+/** Devices older than this are skipped (tokens may be invalid). */
+const DEVICE_ACTIVE_MS =
+  parseInt(process.env.FCM_DEVICE_MAX_AGE_DAYS || '365', 10) * 24 * 60 * 60 * 1000;
+
 function initFCM() {
   if (fcmInitialized) return true;
   try {
@@ -19,9 +23,10 @@ function initFCM() {
     if (process.env.FIREBASE_SERVICE_ACCOUNT && process.env.FIREBASE_SERVICE_ACCOUNT.startsWith('{')) {
       cred = admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT));
     } else if (process.env.FCM_PROJECT_ID && process.env.FCM_PRIVATE_KEY && process.env.FCM_CLIENT_EMAIL) {
+      const key = process.env.FCM_PRIVATE_KEY.replace(/\\n/g, '\n');
       cred = admin.credential.cert({
         projectId: process.env.FCM_PROJECT_ID,
-        privateKey: process.env.FCM_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        privateKey: key,
         clientEmail: process.env.FCM_CLIENT_EMAIL
       });
     }
@@ -31,18 +36,49 @@ function initFCM() {
     }
   } catch (e) {
     console.warn('FCM init skipped:', e.message);
+    fcmInitialized = false;
+    admin = null;
   }
   return fcmInitialized;
 }
 
+/** FCM data payload: every value must be a non-empty string. */
+function stringifyFcmData(data) {
+  const out = {};
+  for (const [k, v] of Object.entries(data || {})) {
+    if (v === undefined || v === null) continue;
+    out[String(k)] = typeof v === 'string' ? v : String(v);
+  }
+  return out;
+}
+
+function deliveryRow(userId, deviceToken, sendResult) {
+  return {
+    userId: userId || undefined,
+    deviceToken: deviceToken || undefined,
+    status: sendResult.success ? 'sent' : 'failed',
+    error: sendResult.success ? undefined : sendResult.error,
+    sentAt: new Date()
+  };
+}
+
+function anyDeliverySucceeded(rows) {
+  return Array.isArray(rows) && rows.some((r) => r.status === 'sent');
+}
+
+function filterActiveDevices(devices) {
+  if (!devices?.length) return [];
+  const cutoff = Date.now() - DEVICE_ACTIVE_MS;
+  return devices.filter((d) => {
+    if (!d?.deviceToken) return false;
+    if (!d.lastActiveAt) return true;
+    const t = new Date(d.lastActiveAt).getTime();
+    return Number.isFinite(t) && t > cutoff;
+  });
+}
+
 /**
  * Send push notification to a single device
- * @param {string} deviceToken - FCM device token
- * @param {string} title - Notification title
- * @param {string} body - Notification body
- * @param {Object} data - Additional data payload
- * @param {string} deepLink - Deep link URL
- * @returns {Promise<Object>} Result object
  */
 const sendToDevice = async (deviceToken, title, body, data = {}, deepLink = null) => {
   if (!initFCM() || !admin) {
@@ -51,46 +87,44 @@ const sendToDevice = async (deviceToken, title, body, data = {}, deepLink = null
   }
 
   try {
+    const dataPayload = stringifyFcmData({
+      ...data,
+      ...(deepLink ? { deepLink } : {})
+    });
+
     const message = {
-      notification: {
-        title,
-        body
-      },
-      data: {
-        ...data,
-        ...(deepLink && { deepLink })
-      },
-      token: deviceToken
+      notification: { title, body },
+      data: dataPayload,
+      token: deviceToken,
+      android: { priority: 'high' },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default'
+          }
+        }
+      }
     };
 
     const response = await admin.messaging().send(message);
     return { success: true, messageId: response };
   } catch (error) {
-    console.error('Error sending push notification:', error);
-    return { success: false, error: error.message };
+    console.error('Error sending push notification:', error.message || error);
+    return { success: false, error: error.message || String(error) };
   }
 };
 
 /**
  * Send push notification to user's devices
- * @param {Object} user - User object
- * @param {string} title - Notification title
- * @param {string} body - Notification body
- * @param {Object} data - Additional data
- * @param {string} deepLink - Deep link URL
- * @returns {Promise<Array>} Results array
  */
 const sendToUserDevices = async (user, title, body, data = {}, deepLink = null, bypassOptIn = false) => {
   if (!bypassOptIn && !user.pushNotificationSettings?.optIn) return [];
   const results = [];
-  const devices = user.devices || [];
-  const activeDevices = devices.filter(
-    device => device.lastActiveAt > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // Last 30 days
-  );
+  const activeDevices = filterActiveDevices(user.devices || []);
 
   for (const device of activeDevices) {
-    const result = await sendToDevice(device.deviceToken, title, body, data, deepLink);
-    results.push({ userId: user._id, deviceToken: device.deviceToken, ...result });
+    const sendResult = await sendToDevice(device.deviceToken, title, body, data, deepLink);
+    results.push(deliveryRow(user._id, device.deviceToken, sendResult));
   }
   return results;
 };
@@ -98,17 +132,7 @@ const sendToUserDevices = async (user, title, body, data = {}, deepLink = null, 
 exports.sendToUser = (user, title, body, data = {}, deepLink = null) =>
   sendToUserDevices(user, title, body, data, deepLink, false);
 
-/**
- * Send notification to users in a zone
- * @param {Object} zone - Zone object
- * @param {string} title - Notification title
- * @param {string} body - Notification body
- * @param {Object} data - Additional data
- * @param {string} deepLink - Deep link URL
- * @returns {Promise<Array>} Results array
- */
 exports.sendToZone = async (zone, title, body, data = {}, deepLink = null) => {
-  // Find all users with bookings in this zone
   const bookings = await Booking.find({ zoneId: zone._id }).distinct('userId');
   const users = await User.find({
     _id: { $in: bookings },
@@ -125,14 +149,6 @@ exports.sendToZone = async (zone, title, body, data = {}, deepLink = null) => {
   return results;
 };
 
-/**
- * Send broadcast notification to all users
- * @param {string} title - Notification title
- * @param {string} body - Notification body
- * @param {Object} data - Additional data
- * @param {string} deepLink - Deep link URL
- * @returns {Promise<Array>} Results array
- */
 exports.sendBroadcast = async (title, body, data = {}, deepLink = null) => {
   const users = await User.find({
     'pushNotificationSettings.optIn': true,
@@ -146,20 +162,64 @@ exports.sendBroadcast = async (title, body, data = {}, deepLink = null) => {
 };
 
 /**
- * Send push notification to all admin users (bypasses optIn for admin alerts)
+ * Send push to all admin users (bypasses notification opt-in).
+ * Returns delivery rows; includes diagnostic rows when nothing could be sent.
  */
 exports.sendToAdmins = async (title, body, data = {}, deepLink = null) => {
-  const adminUsers = await User.find({ isAdmin: true, isActive: true }).select('devices');
+  if (!initFCM() || !admin) {
+    return [
+      {
+        status: 'failed',
+        error:
+          'FCM not configured. Set FCM_PROJECT_ID, FCM_CLIENT_EMAIL, and FCM_PRIVATE_KEY (or FIREBASE_SERVICE_ACCOUNT JSON) on the server.',
+        sentAt: new Date()
+      }
+    ];
+  }
+
+  const adminUsers = await User.find({ isAdmin: true, isActive: true }).select('devices email');
+  if (!adminUsers.length) {
+    return [
+      {
+        status: 'failed',
+        error: 'No active admin users found in the database.',
+        sentAt: new Date()
+      }
+    ];
+  }
+
   const results = [];
   for (const u of adminUsers) {
-    results.push(...(await sendToUserDevices(u, title, body, data, deepLink, true)));
+    const rows = await sendToUserDevices(u, title, body, data, deepLink, true);
+    results.push(...rows);
   }
+
+  const totalRegistered = adminUsers.reduce((n, u) => n + (u.devices?.length || 0), 0);
+
+  if (results.length === 0 && totalRegistered > 0) {
+    return [
+      {
+        status: 'failed',
+        error: `All ${totalRegistered} admin device registration(s) are older than ${DEVICE_ACTIVE_MS / (24 * 60 * 60 * 1000)} days or invalid. Re-open the admin app to refresh FCM (POST /api/auth/device).`,
+        sentAt: new Date()
+      }
+    ];
+  }
+
+  if (results.length === 0) {
+    return [
+      {
+        status: 'failed',
+        error:
+          'No admin devices registered. Each admin must sign in on the mobile app so it can register FCM via POST /api/auth/device with deviceToken and deviceType (ios|android).',
+        sentAt: new Date()
+      }
+    ];
+  }
+
   return results;
 };
 
-/**
- * Send to user for appointment updates (bypasses optIn if appointmentUpdates is true)
- */
 exports.sendToUserForBooking = async (user, title, body, data = {}, deepLink = null) => {
   const optIn = user.pushNotificationSettings?.optIn;
   const appointmentUpdates = user.pushNotificationSettings?.appointmentUpdates !== false;
@@ -167,12 +227,6 @@ exports.sendToUserForBooking = async (user, title, body, data = {}, deepLink = n
   return sendToUserDevices(user, title, body, data, deepLink, true);
 };
 
-/**
- * Create and send admin notification
- * @param {Object} notificationData - Notification data
- * @param {Object} adminUser - Admin user object
- * @returns {Promise<Object>} Created notification document
- */
 exports.createAdminNotification = async (notificationData, adminUser) => {
   const { title, body, targetAudience, deliveryType, scheduledFor, deepLink } = notificationData;
 
@@ -194,11 +248,9 @@ exports.createAdminNotification = async (notificationData, adminUser) => {
   return notification;
 };
 
-const collectRecipientIds = (results) => [...new Set(results.map(r => r.userId?.toString()).filter(Boolean))];
+const collectRecipientIds = (results) =>
+  [...new Set(results.map((r) => r.userId?.toString()).filter(Boolean))];
 
-/**
- * Process and send a notification
- */
 exports.processNotification = async (notification) => {
   let results = [];
   try {
@@ -250,9 +302,11 @@ exports.processNotification = async (notification) => {
           notification.deepLink
         );
         break;
+      default:
+        break;
     }
 
-    notification.status = 'sent';
+    notification.status = anyDeliverySucceeded(results) ? 'sent' : 'failed';
     notification.sentAt = new Date();
     notification.deliveryStatus = results;
     notification.recipientUserIds = collectRecipientIds(results);
@@ -264,21 +318,25 @@ exports.processNotification = async (notification) => {
   }
 };
 
-/**
- * Notify admins when a booking is created by app user
- */
 exports.notifyAdminsBookingCreated = async (booking) => {
   try {
-    const patientName = [booking.patientInfo?.firstName, booking.patientInfo?.lastName].filter(Boolean).join(' ') || 'Patient';
+    const patientName =
+      [booking.patientInfo?.firstName, booking.patientInfo?.lastName].filter(Boolean).join(' ') ||
+      'Patient';
     const title = 'New Booking Alert';
     const body = `You have received a new booking request from ${patientName}`;
-    const results = await exports.sendToAdmins(title, body, { bookingId: booking._id.toString() }, `wdhc://booking/${booking._id}`);
+    const results = await exports.sendToAdmins(
+      title,
+      body,
+      { bookingId: booking._id.toString() },
+      `wdhc://booking/${booking._id}`
+    );
     const notification = await PushNotification.create({
       type: 'booking_created',
       title,
       body,
       targetAudience: { type: 'admins' },
-      status: results.length ? 'sent' : 'failed',
+      status: anyDeliverySucceeded(results) ? 'sent' : 'failed',
       sentAt: new Date(),
       deliveryStatus: results,
       recipientUserIds: collectRecipientIds(results)
@@ -289,9 +347,6 @@ exports.notifyAdminsBookingCreated = async (booking) => {
   }
 };
 
-/**
- * Notify user when admin creates a booking for them
- */
 exports.notifyUserBookingCreatedByAdmin = async (booking) => {
   try {
     if (!booking.userId) return null;
@@ -311,7 +366,7 @@ exports.notifyUserBookingCreatedByAdmin = async (booking) => {
       title,
       body,
       targetAudience: { type: 'booking_id', bookingId: booking._id },
-      status: results.length ? 'sent' : 'failed',
+      status: anyDeliverySucceeded(results) ? 'sent' : 'failed',
       sentAt: new Date(),
       deliveryStatus: results,
       recipientUserIds: [booking.userId],
@@ -323,9 +378,6 @@ exports.notifyUserBookingCreatedByAdmin = async (booking) => {
   }
 };
 
-/**
- * Notify user when admin updates their booking
- */
 exports.notifyUserBookingUpdated = async (booking, oldStatus, newStatus) => {
   try {
     if (!booking.userId) return null;
@@ -345,7 +397,7 @@ exports.notifyUserBookingUpdated = async (booking, oldStatus, newStatus) => {
       title,
       body,
       targetAudience: { type: 'booking_id', bookingId: booking._id },
-      status: results.length ? 'sent' : 'failed',
+      status: anyDeliverySucceeded(results) ? 'sent' : 'failed',
       sentAt: new Date(),
       deliveryStatus: results,
       recipientUserIds: [booking.userId]
