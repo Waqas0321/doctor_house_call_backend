@@ -3,7 +3,11 @@ const Booking = require('../models/Booking');
 const Zone = require('../models/Zone');
 const User = require('../models/User');
 const FamilyMember = require('../models/FamilyMember');
-const { normalizeAndGeocode, reverseGeocode } = require('../services/addressService');
+const {
+  normalizeAndGeocode,
+  reverseGeocode,
+  buildAdminUngeocodedAddress
+} = require('../services/addressService');
 const { findMatchingZone, getAvailableVisitTypes } = require('../services/zoneService');
 const { logBookingOverride, createAuditLog } = require('../services/auditService');
 const { sendConfirmation } = require('../services/notificationService');
@@ -103,12 +107,17 @@ exports.createBooking = async (req, res, next) => {
         });
       }
     } catch (geoErr) {
-      return res.status(400).json({
-        success: false,
-        error:
-          geoErr.message ||
-          'Could not resolve location. Try a full street address or valid coordinates.'
-      });
+      // Address-only flow: allow manual booking with approximate Winnipeg coords
+      if (address && String(address).trim() && (lat == null || lng == null)) {
+        addressData = buildAdminUngeocodedAddress(String(address).trim());
+      } else {
+        return res.status(400).json({
+          success: false,
+          error:
+            geoErr.message ||
+            'Could not resolve location. Try a full street address or valid coordinates.'
+        });
+      }
     }
 
     const familyMember = await FamilyMember.findOne({
