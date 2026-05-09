@@ -58,6 +58,27 @@ Body: form field **`image`** (file, JPEG/PNG/WebP, max 5MB).
 }
 ```
 
+### Register browser for push notifications (admin web portal)
+
+Admins use the **staff web dashboard**, not the mobile app. “New Booking Alert” pushes use the same Firebase project as the app. The browser must obtain an **FCM registration token** (Firebase JS SDK: `getToken()` after `getMessaging()` + service worker), then register it with the backend **while the admin is logged in**:
+
+```http
+POST /api/auth/device
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+```
+
+```json
+{
+  "deviceToken": "<fcm_web_token_from_firebase_getToken>",
+  "deviceType": "web"
+}
+```
+
+**`deviceType`:** `ios` | `android` (mobile app) | **`web`** (Chrome/Edge/Firefox with notifications allowed). Call once after login or when the token refreshes.
+
+If this is never called from the admin portal, admin push alerts will show **failed** in notifications (no registered endpoint).
+
 ---
 
 ## 2. Bookings
@@ -90,10 +111,13 @@ Content-Type: application/json
   "address": "optional if lat/lng provided",
   "notes": "optional",
   "unitBuzzer": "optional",
-  "accessInstructions": "optional"
+  "accessInstructions": "optional",
+  "skipNewBookingAdminNotification": true
 }
 ```
 Patient must belong to `userId`. Confirmation email is sent.
+
+**`skipNewBookingAdminNotification` (optional, boolean):** Defaults to not notifying admins. When `true` (recommended from the staff dashboard manual booking flow), admins do **not** receive the “New Booking Alert” push for this booking. Set to `false` only if you explicitly need the same admin alert as the public app booking flow.
 
 ### Get Booking Details
 ```http

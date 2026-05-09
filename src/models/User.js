@@ -58,7 +58,7 @@ const userSchema = new mongoose.Schema({
   },
   devices: [{
     deviceToken: { type: String, required: true },
-    deviceType: { type: String, enum: ['ios', 'android'], required: true },
+    deviceType: { type: String, enum: ['ios', 'android', 'web'], required: true },
     lastActiveAt: { type: Date, default: Date.now }
   }],
   isActive: {

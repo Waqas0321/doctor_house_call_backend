@@ -11,7 +11,11 @@ const {
 const { findMatchingZone, getAvailableVisitTypes } = require('../services/zoneService');
 const { logBookingOverride, createAuditLog } = require('../services/auditService');
 const { sendConfirmation } = require('../services/notificationService');
-const { notifyUserBookingUpdated, notifyUserBookingCreatedByAdmin } = require('../services/pushNotificationService');
+const {
+  notifyUserBookingUpdated,
+  notifyUserBookingCreatedByAdmin,
+  notifyAdminsBookingCreated
+} = require('../services/pushNotificationService');
 const AuditLog = require('../models/AuditLog');
 
 /**
@@ -67,8 +71,12 @@ exports.createBooking = async (req, res, next) => {
       lng,
       address,
       unitBuzzer,
-      accessInstructions
+      accessInstructions,
+      skipNewBookingAdminNotification
     } = req.body;
+
+    const requestAdminNewBookingAlert =
+      skipNewBookingAdminNotification === false || skipNewBookingAdminNotification === 'false';
 
     if (!userId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
@@ -186,6 +194,10 @@ exports.createBooking = async (req, res, next) => {
     await sendConfirmation(booking);
 
     notifyUserBookingCreatedByAdmin(booking).catch((e) => console.error('Push to user:', e.message));
+
+    if (requestAdminNewBookingAlert) {
+      notifyAdminsBookingCreated(booking).catch((e) => console.error('Push to admins:', e.message));
+    }
 
     await createAuditLog({
       action: 'booking_created_by_admin',

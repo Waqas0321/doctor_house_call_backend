@@ -545,14 +545,14 @@ exports.registerDevice = async (req, res, next) => {
     if (!deviceToken || !deviceType) {
       return res.status(400).json({
         success: false,
-        error: 'deviceToken and deviceType (ios|android) are required'
+        error: 'deviceToken and deviceType (ios|android|web) are required'
       });
     }
 
-    if (!['ios', 'android'].includes(deviceType)) {
+    if (!['ios', 'android', 'web'].includes(deviceType)) {
       return res.status(400).json({
         success: false,
-        error: 'deviceType must be ios or android'
+        error: 'deviceType must be ios, android, or web (browser FCM token)'
       });
     }
 

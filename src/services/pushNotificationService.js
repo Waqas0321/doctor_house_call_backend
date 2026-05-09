@@ -211,7 +211,7 @@ exports.sendToAdmins = async (title, body, data = {}, deepLink = null) => {
       {
         status: 'failed',
         error:
-          'No admin devices registered. Each admin must sign in on the mobile app so it can register FCM via POST /api/auth/device with deviceToken and deviceType (ios|android).',
+          'No admin push endpoints registered. Admin web portal: use Firebase Messaging for Web, then POST /api/auth/device with deviceToken and deviceType "web". Mobile admins use ios|android.',
         sentAt: new Date()
       }
     ];
