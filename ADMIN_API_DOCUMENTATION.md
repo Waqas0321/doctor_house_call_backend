@@ -111,13 +111,12 @@ Content-Type: application/json
   "address": "optional if lat/lng provided",
   "notes": "optional",
   "unitBuzzer": "optional",
-  "accessInstructions": "optional",
-  "skipNewBookingAdminNotification": true
+  "accessInstructions": "optional"
 }
 ```
 Patient must belong to `userId`. Confirmation email is sent.
 
-**`skipNewBookingAdminNotification` (optional, boolean):** Defaults to not notifying admins. When `true` (recommended from the staff dashboard manual booking flow), admins do **not** receive the “New Booking Alert” push for this booking. Set to `false` only if you explicitly need the same admin alert as the public app booking flow.
+**Admin “New Booking Alert” push:** Not sent for manual bookings created here. That alert is only triggered when a patient submits a booking through the mobile app (`POST /api/bookings`). Staff-created bookings still notify the **patient** via push (`notifyUserBookingCreatedByAdmin`) when applicable.
 
 ### Get Booking Details
 ```http
@@ -346,7 +345,7 @@ DELETE /api/admin/notifications/:id
 Authorization: Bearer <admin_token>
 ```
 
-**Auto push:** Admins get push when app user creates booking. Users get push when admin updates or creates their booking.
+**Auto push:** Admins get “New Booking Alert” only when a user books via the app, not when staff uses **Create booking** here. End users get push when an admin updates their booking or when an admin creates a booking for them.
 
 ---
 
