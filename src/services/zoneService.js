@@ -30,33 +30,47 @@ const pointInPolygon = (lat, lng, polygonCoordinates) => {
  */
 exports.findMatchingZone = async (lat, lng) => {
   try {
-    // Get all active zones, sorted by priority (highest first)
+    const la = Number(lat);
+    const ln = Number(lng);
+    if (!Number.isFinite(la) || !Number.isFinite(ln)) {
+      return null;
+    }
+
     const zones = await Zone.find({ isActive: true })
       .sort({ priority: -1 });
 
-    // Check each zone to see if point is inside
     for (const zone of zones) {
-      const coordinates = zone.boundaryData.coordinates;
-      
-      // Handle both Polygon and MultiPolygon
-      if (zone.boundaryData.type === 'Polygon') {
-        if (pointInPolygon(lat, lng, coordinates)) {
-          return zone;
-        }
-      } else if (zone.boundaryData.type === 'MultiPolygon') {
-        // Check each polygon in the multipolygon
-        for (const polygon of coordinates) {
-          if (pointInPolygon(lat, lng, polygon)) {
+      const bd = zone?.boundaryData;
+      if (!bd?.coordinates || !bd?.type) {
+        continue;
+      }
+
+      try {
+        const { coordinates, type } = bd;
+        if (type === 'Polygon') {
+          if (pointInPolygon(la, ln, coordinates)) {
             return zone;
           }
+        } else if (type === 'MultiPolygon') {
+          for (const polygon of coordinates) {
+            if (pointInPolygon(la, ln, polygon)) {
+              return zone;
+            }
+          }
         }
+      } catch (e) {
+        console.warn(
+          'findMatchingZone: skipping zone',
+          zone._id?.toString(),
+          e.message
+        );
       }
     }
 
     return null;
   } catch (error) {
     console.error('Error finding matching zone:', error);
-    throw new Error(`Zone matching failed: ${error.message}`);
+    return null;
   }
 };
 

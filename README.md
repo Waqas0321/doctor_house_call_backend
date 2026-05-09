@@ -17,7 +17,7 @@ A RESTful API for managing doctor house call bookings with location-based servic
 - Node.js & Express.js
 - MongoDB with Mongoose
 - JWT Authentication
-- Geocoding API (Google Maps)
+- Geocoding (Google Maps with API key, or OpenStreetMap / Nominatim when no key)
 - Twilio (SMS)
 - Nodemailer (Email)
 - Firebase Cloud Messaging (Push Notifications - optional)
@@ -52,7 +52,7 @@ See `.env.example` for all required environment variables.
 Key variables:
 - `MONGODB_URI`: MongoDB connection string
 - `JWT_SECRET`: Secret key for JWT tokens
-- `GEOCODING_API_KEY`: Google Maps API key for geocoding
+- **Geocoding:** Set `GEOCODING_API_KEY` or `GOOGLE_MAPS_API_KEY` for Google. If unset, the API uses **OpenStreetMap / Nominatim** (no key) so admin manual bookings still work.
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`: Twilio credentials for SMS
 - `EMAIL_USER`, `EMAIL_PASS`: Email credentials for Nodemailer
 

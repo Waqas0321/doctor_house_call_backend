@@ -18,20 +18,28 @@ const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
-// Security middleware
-app.use(helmet());
+// Vercel / proxies: correct client IP for rate limiting and logs
+app.set('trust proxy', 1);
 
-// CORS - allow all for API (mobile apps, web, Vercel)
+// Security middleware — cross-origin API (web + mobile); CORP same-origin breaks some fetch setups
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
+
+// CORS: reflect request Origin (works with credentials); required for localhost → production API
 app.use(cors({ origin: true, credentials: true }));
 
 // Body parser - increase limit for base64 images
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Rate limiting
+// Rate limiting (skip OPTIONS so preflight is never counted or blocked)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: 100, // limit each IP to 100 requests per windowMs
+  skip: (req) => req.method === 'OPTIONS',
 });
 app.use('/api/', limiter);
 

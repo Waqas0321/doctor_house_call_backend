@@ -83,14 +83,31 @@ exports.createBooking = async (req, res, next) => {
     }
 
     let addressData;
-    if (lat != null && lng != null) {
-      addressData = await reverseGeocode(parseFloat(lat), parseFloat(lng));
-    } else if (address) {
-      addressData = await normalizeAndGeocode(address);
-    } else {
+    try {
+      if (lat != null && lng != null) {
+        const la = parseFloat(lat);
+        const ln = parseFloat(lng);
+        if (!Number.isFinite(la) || !Number.isFinite(ln)) {
+          return res.status(400).json({
+            success: false,
+            error: 'lat and lng must be valid numbers'
+          });
+        }
+        addressData = await reverseGeocode(la, ln);
+      } else if (address) {
+        addressData = await normalizeAndGeocode(String(address).trim());
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Location required: provide lat/lng or address'
+        });
+      }
+    } catch (geoErr) {
       return res.status(400).json({
         success: false,
-        error: 'Location required: provide lat/lng or address'
+        error:
+          geoErr.message ||
+          'Could not resolve location. Try a full street address or valid coordinates.'
       });
     }
 
@@ -106,11 +123,24 @@ exports.createBooking = async (req, res, next) => {
       });
     }
 
+    if (!familyMember.dob) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'Patient must have a date of birth on file before booking. Update the patient profile first.'
+      });
+    }
+
     const fullName = familyMember.fullName || [familyMember.firstName, familyMember.lastName].filter(Boolean).join(' ').trim();
     const nameParts = (fullName || 'Patient').split(/\s+/);
+    const firstName = nameParts[0] || familyMember.firstName || 'Patient';
+    const lastName =
+      nameParts.slice(1).join(' ') ||
+      familyMember.lastName ||
+      (nameParts.length > 1 ? '' : '—');
     const patientInfo = {
-      firstName: nameParts[0] || familyMember.firstName || '',
-      lastName: nameParts.slice(1).join(' ') || familyMember.lastName || '',
+      firstName,
+      lastName: lastName || '—',
       dob: familyMember.dob,
       phin: familyMember.phin,
       mhsc: familyMember.mhsc
