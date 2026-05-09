@@ -9,7 +9,7 @@ A RESTful API for managing doctor house call bookings with location-based servic
 - **Family Member Management**: Save and reuse family member profiles
 - **Booking Management**: Create, track, and manage appointments
 - **Admin Portal**: Manage zones, bookings, and send notifications
-- **Push Notifications**: Optional push notifications for appointment updates
+- **In-app notifications**: Booking and admin messages stored in MongoDB for the admin panel and app feed
 - **Audit Logging**: Complete audit trail for admin actions
 
 ## Tech Stack
@@ -20,7 +20,6 @@ A RESTful API for managing doctor house call bookings with location-based servic
 - Geocoding (Google Maps with API key, or OpenStreetMap / Nominatim when no key)
 - Twilio (SMS)
 - Nodemailer (Email)
-- Firebase Cloud Messaging (Push Notifications - optional)
 
 ## Installation
 
@@ -62,7 +61,7 @@ Key variables:
 - `POST /api/auth/oauth` - OAuth login (Google/Facebook)
 - `GET /api/auth/me` - Get current user
 - `PUT /api/auth/profile` - Update user profile
-- `POST /api/auth/device` - Register device for push notifications
+- `POST /api/auth/device` - Optional device registration (legacy / future use)
 - `PUT /api/auth/notification-settings` - Update notification preferences
 
 ### Coverage Check
@@ -152,7 +151,7 @@ src/
 - Address geocoding is required before booking
 - Zone matching uses polygon intersection
 - All admin actions are logged in audit logs
-- Push notifications require Firebase Admin SDK (optional)
+- Notifications are database-backed (no FCM in this build)
 
 ## License
 

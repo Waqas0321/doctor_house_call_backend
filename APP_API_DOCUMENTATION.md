@@ -140,7 +140,7 @@ Content-Type: application/json
   "deviceType": "ios"
 }
 ```
-`deviceType`: `ios`, `android`, or `web` (browser FCM token for staff dashboards). Call after login to receive push notifications.
+`deviceType`: `ios`, `android`, or `web`. Optional; in-app notifications use the database (`GET /api/notifications`) and do not require device registration.
 
 ### Delete Account
 ```http

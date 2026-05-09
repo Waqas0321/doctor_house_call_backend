@@ -58,26 +58,11 @@ Body: form field **`image`** (file, JPEG/PNG/WebP, max 5MB).
 }
 ```
 
-### Register browser for push notifications (admin web portal)
+### Notifications (admin feed — database only)
 
-Admins use the **staff web dashboard**, not the mobile app. “New Booking Alert” pushes use the same Firebase project as the app. The browser must obtain an **FCM registration token** (Firebase JS SDK: `getToken()` after `getMessaging()` + service worker), then register it with the backend **while the admin is logged in**:
+Booking alerts and manual announcements are **stored in MongoDB** and returned by **`GET /api/admin/notifications`**. The backend does **not** send FCM / mobile push; the admin panel should poll or refresh this list to show staff what happened.
 
-```http
-POST /api/auth/device
-Authorization: Bearer <admin_token>
-Content-Type: application/json
-```
-
-```json
-{
-  "deviceToken": "<fcm_web_token_from_firebase_getToken>",
-  "deviceType": "web"
-}
-```
-
-**`deviceType`:** `ios` | `android` (mobile app) | **`web`** (Chrome/Edge/Firefox with notifications allowed). Call once after login or when the token refreshes.
-
-If this is never called from the admin portal, admin “New Booking” pushes cannot be delivered; the notification record may show **`failed`** (FCM misconfigured) or **`skipped`** (no attempt). See **Notifications** below.
+Optional: **`POST /api/auth/device`** remains available if you add native push later; it is **not required** for the admin notification list.
 
 ---
 
@@ -116,7 +101,7 @@ Content-Type: application/json
 ```
 Patient must belong to `userId`. Confirmation email is sent.
 
-**Admin “New Booking Alert” push:** Not sent for manual bookings created here. That alert is only triggered when a patient submits a booking through the mobile app (`POST /api/bookings`). Staff-created bookings still notify the **patient** via push (`notifyUserBookingCreatedByAdmin`) when applicable.
+**Admin “New Booking Alert”:** Not created for manual bookings here. A **database notification** is created when a patient books via the app (`POST /api/bookings`). Staff-created bookings add a **“Booking Created”** row for the patient user (for **`GET /api/notifications`** on the app).
 
 ### Get Booking Details
 ```http
@@ -306,18 +291,16 @@ Authorization: Bearer <admin_token>
 GET /api/admin/notifications?status=sent&type=manual
 Authorization: Bearer <admin_token>
 ```
-Returns notifications with stats: `total`, `sent`, `draft`, `failed`, **`skipped`**. Use **`deliveryStatus`** (and each row’s **`error`**) to see why a push did not succeed.
+Returns notifications with stats: `total`, `sent`, `draft`, `failed`, `skipped`. New rows from booking flows and processed manual sends use **`sent`** (stored for display; **`deliveryStatus`** is usually empty).
 
 **Status meaning**
 
 | Status | Meaning |
 |--------|--------|
-| **sent** | At least one device received the FCM message. |
-| **failed** | A delivery was attempted but nothing succeeded (e.g. invalid FCM token, or Firebase env missing / wrong on the server). Read `deliveryStatus[].error`. |
-| **skipped** | No device was targeted (e.g. user turned off push, no `POST /api/auth/device`, or no users matched a broadcast/zone filter). Not the same as a broken Firebase setup. |
+| **sent** | Stored successfully for the admin (and/or app) notification list. |
+| **failed** | Processing error while saving (rare). |
+| **skipped** | Legacy rows only; new logic does not use push. |
 | **pending** / **scheduled** | Manual notification not processed yet. |
-
-**Why everything looked “failed” before:** any case with zero successful sends was stored as `failed`, including “nobody to send to”. Those empty cases are now **`skipped`** with an explanatory `deliveryStatus` row. True infrastructure or token problems stay **`failed`**.
 
 Display on admin panel.
 
@@ -344,7 +327,7 @@ Content-Type: application/json
   "deepLink": "optional wdhc://path"
 }
 ```
-`targetAudience.type`: `single_user`, `booking_id`, `service_zone`, `all_users`. Sends push and stores in DB; displays on admin and app.
+`targetAudience.type`: `single_user`, `booking_id`, `service_zone`, `all_users`. Stores in DB for admin list and matching app users (`GET /api/notifications`); no FCM.
 
 ### Get Notification
 ```http
@@ -358,7 +341,7 @@ DELETE /api/admin/notifications/:id
 Authorization: Bearer <admin_token>
 ```
 
-**Auto push:** Admins get “New Booking Alert” only when a user books via the app, not when staff uses **Create booking** here. End users get push when an admin updates their booking or when an admin creates a booking for them.
+**Auto notifications (DB):** Admins see “New Booking Alert” when a user books via the app, not when staff uses **Create booking** here. End users get in-app notification rows when an admin updates their booking or creates a booking for them.
 
 ---
 
