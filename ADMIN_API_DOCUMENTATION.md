@@ -77,7 +77,7 @@ Content-Type: application/json
 
 **`deviceType`:** `ios` | `android` (mobile app) | **`web`** (Chrome/Edge/Firefox with notifications allowed). Call once after login or when the token refreshes.
 
-If this is never called from the admin portal, admin push alerts will show **failed** in notifications (no registered endpoint).
+If this is never called from the admin portal, admin “New Booking” pushes cannot be delivered; the notification record may show **`failed`** (FCM misconfigured) or **`skipped`** (no attempt). See **Notifications** below.
 
 ---
 
@@ -306,7 +306,20 @@ Authorization: Bearer <admin_token>
 GET /api/admin/notifications?status=sent&type=manual
 Authorization: Bearer <admin_token>
 ```
-Returns notifications with stats: `total`, `sent`, `draft`, `failed`. Display on admin panel.
+Returns notifications with stats: `total`, `sent`, `draft`, `failed`, **`skipped`**. Use **`deliveryStatus`** (and each row’s **`error`**) to see why a push did not succeed.
+
+**Status meaning**
+
+| Status | Meaning |
+|--------|--------|
+| **sent** | At least one device received the FCM message. |
+| **failed** | A delivery was attempted but nothing succeeded (e.g. invalid FCM token, or Firebase env missing / wrong on the server). Read `deliveryStatus[].error`. |
+| **skipped** | No device was targeted (e.g. user turned off push, no `POST /api/auth/device`, or no users matched a broadcast/zone filter). Not the same as a broken Firebase setup. |
+| **pending** / **scheduled** | Manual notification not processed yet. |
+
+**Why everything looked “failed” before:** any case with zero successful sends was stored as `failed`, including “nobody to send to”. Those empty cases are now **`skipped`** with an explanatory `deliveryStatus` row. True infrastructure or token problems stay **`failed`**.
+
+Display on admin panel.
 
 ### Create Manual Notification
 ```http

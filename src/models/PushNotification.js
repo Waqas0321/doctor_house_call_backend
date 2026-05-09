@@ -39,13 +39,13 @@ const pushNotificationSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'scheduled', 'sent', 'failed'],
+    enum: ['pending', 'scheduled', 'sent', 'failed', 'skipped'],
     default: 'pending'
   },
   deliveryStatus: [{
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     deviceToken: { type: String },
-    status: { type: String, enum: ['sent', 'failed', 'pending'] },
+    status: { type: String, enum: ['sent', 'failed', 'pending', 'skipped'] },
     error: { type: String },
     sentAt: { type: Date }
   }],

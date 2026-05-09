@@ -66,6 +66,31 @@ function anyDeliverySucceeded(rows) {
   return Array.isArray(rows) && rows.some((r) => r.status === 'sent');
 }
 
+/**
+ * sent = at least one device got the push.
+ * skipped = nothing was attempted (no devices / no opt-in / no matching users).
+ * failed = we tried (or infra misconfigured e.g. FCM) but nothing succeeded.
+ */
+function finalizeOutcomeFromDeliveryResults(results) {
+  if (anyDeliverySucceeded(results)) {
+    return { status: 'sent', deliveryStatus: results };
+  }
+  if (!results || results.length === 0) {
+    return {
+      status: 'skipped',
+      deliveryStatus: [
+        {
+          status: 'skipped',
+          error:
+            'No push was sent: recipient may have push disabled, no FCM device registered, or no users matched the audience.',
+          sentAt: new Date()
+        }
+      ]
+    };
+  }
+  return { status: 'failed', deliveryStatus: results };
+}
+
 function filterActiveDevices(devices) {
   if (!devices?.length) return [];
   const cutoff = Date.now() - DEVICE_ACTIVE_MS;
@@ -306,10 +331,11 @@ exports.processNotification = async (notification) => {
         break;
     }
 
-    notification.status = anyDeliverySucceeded(results) ? 'sent' : 'failed';
+    const outcome = finalizeOutcomeFromDeliveryResults(results);
+    notification.status = outcome.status;
     notification.sentAt = new Date();
-    notification.deliveryStatus = results;
-    notification.recipientUserIds = collectRecipientIds(results);
+    notification.deliveryStatus = outcome.deliveryStatus;
+    notification.recipientUserIds = collectRecipientIds(outcome.deliveryStatus);
     await notification.save();
   } catch (error) {
     console.error('Error processing notification:', error);
@@ -331,15 +357,16 @@ exports.notifyAdminsBookingCreated = async (booking) => {
       { bookingId: booking._id.toString() },
       `wdhc://booking/${booking._id}`
     );
+    const outcome = finalizeOutcomeFromDeliveryResults(results);
     const notification = await PushNotification.create({
       type: 'booking_created',
       title,
       body,
       targetAudience: { type: 'admins' },
-      status: anyDeliverySucceeded(results) ? 'sent' : 'failed',
+      status: outcome.status,
       sentAt: new Date(),
-      deliveryStatus: results,
-      recipientUserIds: collectRecipientIds(results)
+      deliveryStatus: outcome.deliveryStatus,
+      recipientUserIds: collectRecipientIds(outcome.deliveryStatus)
     });
     return notification;
   } catch (e) {
@@ -361,14 +388,15 @@ exports.notifyUserBookingCreatedByAdmin = async (booking) => {
       { bookingId: booking._id.toString() },
       `wdhc://booking/${booking._id}`
     );
+    const outcome = finalizeOutcomeFromDeliveryResults(results);
     const notification = await PushNotification.create({
       type: 'booking_created',
       title,
       body,
       targetAudience: { type: 'booking_id', bookingId: booking._id },
-      status: anyDeliverySucceeded(results) ? 'sent' : 'failed',
+      status: outcome.status,
       sentAt: new Date(),
-      deliveryStatus: results,
+      deliveryStatus: outcome.deliveryStatus,
       recipientUserIds: [booking.userId],
       sentBy: null
     });
@@ -392,14 +420,15 @@ exports.notifyUserBookingUpdated = async (booking, oldStatus, newStatus) => {
       { bookingId: booking._id.toString() },
       `wdhc://booking/${booking._id}`
     );
+    const outcome = finalizeOutcomeFromDeliveryResults(results);
     const notification = await PushNotification.create({
       type: 'booking_updated',
       title,
       body,
       targetAudience: { type: 'booking_id', bookingId: booking._id },
-      status: anyDeliverySucceeded(results) ? 'sent' : 'failed',
+      status: outcome.status,
       sentAt: new Date(),
-      deliveryStatus: results,
+      deliveryStatus: outcome.deliveryStatus,
       recipientUserIds: [booking.userId]
     });
     return notification;

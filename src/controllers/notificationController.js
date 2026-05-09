@@ -22,11 +22,12 @@ exports.getAllNotifications = async (req, res, next) => {
     const sent = notifications.filter((n) => n.status === 'sent').length;
     const draft = notifications.filter((n) => n.status === 'pending' || n.status === 'scheduled').length;
     const failed = notifications.filter((n) => n.status === 'failed').length;
+    const skipped = notifications.filter((n) => n.status === 'skipped').length;
 
     res.status(200).json({
       success: true,
       count: total,
-      stats: { total, sent, draft, failed },
+      stats: { total, sent, draft, failed, skipped },
       data: notifications
     });
   } catch (error) {
