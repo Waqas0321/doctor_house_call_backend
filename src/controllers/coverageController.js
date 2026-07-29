@@ -1,6 +1,31 @@
 const Zone = require('../models/Zone');
-const { normalizeAndGeocode } = require('../services/addressService');
+const { normalizeAndGeocode, autocompleteAddress } = require('../services/addressService');
 const { checkCoverage } = require('../services/zoneService');
+
+/**
+ * @desc    Address autocomplete suggestions (Google Places when key set, else OSM/Photon)
+ * @route   GET /api/coverage/autocomplete?q=...
+ * @access  Public
+ */
+exports.autocomplete = async (req, res, next) => {
+  try {
+    const q = (req.query.q || req.query.query || '').trim();
+    if (q.length < 3) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const limit = req.query.limit;
+    const data = await autocompleteAddress(q, limit);
+
+    res.status(200).json({
+      success: true,
+      count: data.length,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * @desc    List active service zones (for app to show "We serve: ...")

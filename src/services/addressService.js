@@ -265,3 +265,170 @@ exports.formatAddress = (addressData) => {
   if (addressData.postalCode) parts.push(addressData.postalCode);
   return parts.join(', ');
 };
+
+function googleMapsApiKey() {
+  return (
+    process.env.GEOCODING_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_PLACES_API_KEY ||
+    ''
+  ).trim();
+}
+
+/**
+ * Google Places Autocomplete (legacy) — used when a Maps/Geocoding key is configured.
+ */
+async function autocompleteGoogle(query, limit) {
+  const key = googleMapsApiKey();
+  if (!key) return [];
+
+  const { data } = await axios.get(
+    'https://maps.googleapis.com/maps/api/place/autocomplete/json',
+    {
+      params: {
+        input: query,
+        key,
+        components: 'country:ca',
+        types: 'address',
+        language: 'en',
+      },
+      timeout: 10000,
+    }
+  );
+
+  if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+    throw new Error(data.error_message || `Places autocomplete status: ${data.status}`);
+  }
+
+  const predictions = (data.predictions || []).slice(0, limit);
+  const results = [];
+
+  for (const p of predictions) {
+    let lat = null;
+    let lng = null;
+    try {
+      const details = await axios.get(
+        'https://maps.googleapis.com/maps/api/place/details/json',
+        {
+          params: {
+            place_id: p.place_id,
+            key,
+            fields: 'geometry,formatted_address',
+          },
+          timeout: 10000,
+        }
+      );
+      const loc = details.data?.result?.geometry?.location;
+      if (loc) {
+        lat = loc.lat;
+        lng = loc.lng;
+      }
+    } catch {
+      // suggestion without coords is still useful
+    }
+
+    results.push({
+      description: p.description,
+      placeId: p.place_id,
+      lat,
+      lng,
+      provider: 'google',
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Nominatim free-text search fallback (no API key).
+ */
+async function autocompleteNominatim(query, limit) {
+  const email = (process.env.NOMINATIM_CONTACT_EMAIL || process.env.EMAIL_USER || '').trim();
+  const { data } = await axios.get(`${osmServer}/search`, {
+    params: {
+      q: query,
+      format: 'json',
+      addressdetails: 1,
+      limit,
+      countrycodes: 'ca',
+      ...(email ? { email } : {}),
+    },
+    timeout: 12000,
+    headers: {
+      'User-Agent': nominatimUserAgent,
+      Accept: 'application/json',
+    },
+  });
+
+  return (Array.isArray(data) ? data : []).map((item) => ({
+    description: item.display_name,
+    placeId: item.place_id != null ? String(item.place_id) : undefined,
+    lat: item.lat != null ? parseFloat(item.lat) : null,
+    lng: item.lon != null ? parseFloat(item.lon) : null,
+    provider: 'openstreetmap',
+  }));
+}
+
+/**
+ * Photon (Komoot) fallback.
+ */
+async function autocompletePhoton(query, limit) {
+  const { data } = await axios.get('https://photon.komoot.io/api/', {
+    params: { q: query, limit, lang: 'en' },
+    timeout: 12000,
+    headers: { 'User-Agent': nominatimUserAgent, Accept: 'application/json' },
+  });
+
+  return (data?.features || []).map((f) => {
+    const [lng, lat] = f.geometry?.coordinates || [];
+    const p = f.properties || {};
+    const description =
+      [p.housenumber, p.street, p.city || p.town, p.state, p.postcode, p.country]
+        .filter(Boolean)
+        .join(', ')
+        .trim() || p.name || query;
+    return {
+      description,
+      placeId: p.osm_id != null ? String(p.osm_id) : undefined,
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null,
+      provider: 'photon',
+    };
+  });
+}
+
+/**
+ * Address autocomplete suggestions for the mobile app / admin tools.
+ * Prefers Google Places when a key is set; otherwise Nominatim → Photon.
+ * @param {string} query
+ * @param {number} [limit=5]
+ * @returns {Promise<Array<{description:string,placeId?:string,lat?:number,lng?:number,provider:string}>>}
+ */
+exports.autocompleteAddress = async (query, limit = 5) => {
+  const q = String(query || '').trim();
+  if (q.length < 3) return [];
+
+  const capped = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 10);
+
+  if (googleMapsApiKey()) {
+    try {
+      const googleResults = await autocompleteGoogle(q, capped);
+      if (googleResults.length) return googleResults;
+    } catch {
+      // fall through to free providers
+    }
+  }
+
+  try {
+    const nominatim = await autocompleteNominatim(q, capped);
+    if (nominatim.length) return nominatim;
+  } catch {
+    // fall through
+  }
+
+  try {
+    return await autocompletePhoton(q, capped);
+  } catch {
+    return [];
+  }
+};
