@@ -43,7 +43,7 @@ const bookingSchema = new mongoose.Schema({
   matchedZoneName: {
     type: String
   },
-  // Patient information (snapshot at booking time)
+  // Patient information (snapshot at booking time) — first / primary patient
   patientInfo: {
     firstName: { type: String, required: true },
     lastName: { type: String, required: true },
@@ -51,10 +51,23 @@ const bookingSchema = new mongoose.Schema({
     phin: { type: String },
     mhsc: { type: String }
   },
+  // Additional patients on the same call (multi-select booking)
+  patientsInfo: [{
+    firstName: { type: String },
+    lastName: { type: String },
+    dob: { type: Date },
+    phin: { type: String },
+    mhsc: { type: String },
+    familyMemberId: { type: mongoose.Schema.Types.ObjectId, ref: 'FamilyMember' }
+  }],
   familyMemberId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'FamilyMember'
   },
+  familyMemberIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FamilyMember'
+  }],
   // Contact information
   contactPhone: {
     type: String,

@@ -28,6 +28,19 @@ const handleSocialAuth = async (provider, req, res, next) => {
       });
     }
 
+    // Apple only sends email/name on first authorization — treat blanks as unset
+    // so sparse unique email index does not reject later Apple users.
+    const normalizedEmail =
+      typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : undefined;
+    const normalizedFirstName =
+      typeof firstName === 'string' && firstName.trim() ? firstName.trim() : undefined;
+    const normalizedLastName =
+      typeof lastName === 'string' && lastName.trim() ? lastName.trim() : undefined;
+    const normalizedPicture =
+      typeof profilePicture === 'string' && profilePicture.trim()
+        ? profilePicture.trim()
+        : undefined;
+
     // Find or create user
     let user = await User.findOne({
       authProvider: provider,
@@ -35,21 +48,21 @@ const handleSocialAuth = async (provider, req, res, next) => {
     });
 
     if (user) {
-      // Update user info if provided
-      if (email) user.email = email;
-      if (firstName) user.firstName = firstName;
-      if (lastName) user.lastName = lastName;
-      if (profilePicture) user.profilePicture = profilePicture;
+      // Update user info if provided (never overwrite with empty Apple fields)
+      if (normalizedEmail) user.email = normalizedEmail;
+      if (normalizedFirstName) user.firstName = normalizedFirstName;
+      if (normalizedLastName) user.lastName = normalizedLastName;
+      if (normalizedPicture) user.profilePicture = normalizedPicture;
       await user.save();
     } else {
       // Create new user
       user = await User.create({
         authProvider: provider,
         providerUserId,
-        email,
-        firstName,
-        lastName,
-        profilePicture
+        ...(normalizedEmail ? { email: normalizedEmail } : {}),
+        ...(normalizedFirstName ? { firstName: normalizedFirstName } : {}),
+        ...(normalizedLastName ? { lastName: normalizedLastName } : {}),
+        ...(normalizedPicture ? { profilePicture: normalizedPicture } : {}),
       });
 
       await createAuditLog({
@@ -69,9 +82,9 @@ const handleSocialAuth = async (provider, req, res, next) => {
       token,
       user: {
         id: user._id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
+        email: user.email || '',
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
         profilePicture: user.profilePicture
       }
     });
